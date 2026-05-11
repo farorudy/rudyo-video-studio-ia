@@ -1,0 +1,24 @@
+{
+  "clips": [
+    {
+      "file": "plan1.mp4"
+    },
+    {
+      "file": "plan2.mp4"
+    },
+    {
+      "file": "plan3.mp4"
+    }
+  ],
+  "transition": {
+    "type": "cut",
+    "duree": 0
+  },
+  "output": {
+    "resolution": "1280x720",
+    "fps": 24
+  },
+  "audio": {
+    "musique": "media/audio/musique.mp3"
+  }
+}

@@ -1,0 +1,83 @@
+Titre : Bòd lanmè pa lwen
+Format : 16:9 YouTube
+Style : Cinématographique caribéen
+Durée : 3 minutes
+
+Etapes :
+1. Générez une vidéo par clip avec le prompt Video IA.
+2. Placez les fichiers mp4 générés dans media/plans.
+3. Placez la musique finale dans media/audio/musique.mp3.
+4. Lancez npm run montage pour assembler le clip final.
+
+Clips :
+Clip 1 - clip_01
+Durée : 12 secondes
+Description : plan d'ouverture atmosphérique qui installe le lieu, le ton et le personnage principal.
+Prompt Image IA : cinematic opening shot, tropical environment, soft natural light, emotional atmosphere
+Prompt Video IA : Create a 16:9 YouTube Cinématographique caribéen video shot for "Bòd lanmè pa lwen". Scene: plan d'ouverture atmosphérique qui installe le lieu, le ton et le personnage principal.. Action: le personnage entre dans le cadre et observe l'horizon. Emotion: attente. Set: environnement principal du récit. Camera: travelling avant lent. High-end music video aesthetic, realistic motion, production-ready, no subtitles.
+
+Clip 2 - clip_02
+Durée : 12 secondes
+Description : alternance de détails symboliques liés au thème de la vidéo.
+Prompt Image IA : close-up symbolic details, textured set, cinematic contrast, reflective mood
+Prompt Video IA : Create a 16:9 YouTube Cinématographique caribéen video shot for "Bòd lanmè pa lwen". Scene: alternance de détails symboliques liés au thème de la vidéo.. Action: gestes lents et contemplatifs. Emotion: introspection. Set: éléments de décor texturés et expressifs. Camera: caméra portée stabilisée. High-end music video aesthetic, realistic motion, production-ready, no subtitles.
+
+Clip 3 - clip_03
+Durée : 12 secondes
+Description : montée d'intensité avec mouvement plus ample et décor plus vivant.
+Prompt Image IA : medium shot, golden hour, determined character, dynamic composition
+Prompt Video IA : Create a 16:9 YouTube Cinématographique caribéen video shot for "Bòd lanmè pa lwen". Scene: montée d'intensité avec mouvement plus ample et décor plus vivant.. Action: le personnage avance avec détermination. Emotion: élan. Set: espace ouvert avec profondeur marquée. Camera: panoramique fluide. High-end music video aesthetic, realistic motion, production-ready, no subtitles.
+
+Clip 4 - clip_04
+Durée : 12 secondes
+Description : plan culminant qui met en avant l'émotion centrale du projet.
+Prompt Image IA : dramatic close shot, expressive face, shallow depth of field, emotional climax
+Prompt Video IA : Create a 16:9 YouTube Cinématographique caribéen video shot for "Bòd lanmè pa lwen". Scene: plan culminant qui met en avant l'émotion centrale du projet.. Action: expression intense face caméra. Emotion: impact. Set: arrière-plan diffus pour isoler le sujet. Camera: léger arc de cercle. High-end music video aesthetic, realistic motion, production-ready, no subtitles.
+
+Clip 5 - clip_05
+Durée : 12 secondes
+Description : transition visuelle qui relie le récit à un nouvel espace ou une nouvelle énergie.
+Prompt Image IA : cinematic transition shot, lateral tracking, soft backlight, changing energy
+Prompt Video IA : Create a 16:9 YouTube Cinématographique caribéen video shot for "Bòd lanmè pa lwen". Scene: transition visuelle qui relie le récit à un nouvel espace ou une nouvelle énergie.. Action: le personnage change de rythme et de direction. Emotion: bascule. Set: passage entre deux zones du décor. Camera: travelling latéral souple. High-end music video aesthetic, realistic motion, production-ready, no subtitles.
+
+Clip 6 - clip_06
+Durée : 12 secondes
+Description : tableau chorégraphié ou performatif qui donne de l'ampleur au clip.
+Prompt Image IA : music video wide shot, choreographed movement, premium lighting, epic composition
+Prompt Video IA : Create a 16:9 YouTube Cinématographique caribéen video shot for "Bòd lanmè pa lwen". Scene: tableau chorégraphié ou performatif qui donne de l'ampleur au clip.. Action: mouvement collectif ou performance centrale. Emotion: puissance. Set: espace ouvert mis en valeur par la composition. Camera: grue virtuelle ou drone lent. High-end music video aesthetic, realistic motion, production-ready, no subtitles.
+
+Clip 7 - clip_07
+Durée : 12 secondes
+Description : moment suspendu plus intime avant la dernière montée dramatique.
+Prompt Image IA : intimate cinematic close-up, soft wrap light, symbolic gesture, emotional pause
+Prompt Video IA : Create a 16:9 YouTube Cinématographique caribéen video shot for "Bòd lanmè pa lwen". Scene: moment suspendu plus intime avant la dernière montée dramatique.. Action: regard intérieur ou geste symbolique. Emotion: vulnérabilité. Set: décor apaisé avec textures naturelles. Camera: caméra fixe respirante. High-end music video aesthetic, realistic motion, production-ready, no subtitles.
+
+Clip 8 - clip_08
+Durée : 12 secondes
+Description : relance rythmique qui prépare la séquence finale.
+Prompt Image IA : dynamic medium shot, energetic handheld feel, cinematic tension, vivid environment
+Prompt Video IA : Create a 16:9 YouTube Cinématographique caribéen video shot for "Bòd lanmè pa lwen". Scene: relance rythmique qui prépare la séquence finale.. Action: accélération du jeu ou de la progression. Emotion: tension. Set: décor animé par le vent, la foule ou les éléments. Camera: mouvement d'épaule énergique. High-end music video aesthetic, realistic motion, production-ready, no subtitles.
+
+Clip 9 - clip_09
+Durée : 12 secondes
+Description : pré-climax visuel avec composition très graphique.
+Prompt Image IA : graphic cinematic tableau, sculpted light, strong pose, visual statement
+Prompt Video IA : Create a 16:9 YouTube Cinématographique caribéen video shot for "Bòd lanmè pa lwen". Scene: pré-climax visuel avec composition très graphique.. Action: pose, arrêt ou geste clé du récit. Emotion: affirmation. Set: décor stylisé à forte identité. Camera: zoom lent contrôlé. High-end music video aesthetic, realistic motion, production-ready, no subtitles.
+
+Clip 10 - clip_10
+Durée : 12 secondes
+Description : explosion émotionnelle et visuelle au coeur du morceau.
+Prompt Image IA : hero shot, dramatic orbit camera, spectacular lighting, emotional release
+Prompt Video IA : Create a 16:9 YouTube Cinématographique caribéen video shot for "Bòd lanmè pa lwen". Scene: explosion émotionnelle et visuelle au coeur du morceau.. Action: performance frontale et engagée. Emotion: libération. Set: décor principal à son maximum d'intensité. Camera: orbite ample autour du sujet. High-end music video aesthetic, realistic motion, production-ready, no subtitles.
+
+Clip 11 - clip_11
+Durée : 12 secondes
+Description : retombée poétique après le point culminant.
+Prompt Image IA : poetic contemplative shot, slow pull back, dusk atmosphere, emotional calm
+Prompt Video IA : Create a 16:9 YouTube Cinématographique caribéen video shot for "Bòd lanmè pa lwen". Scene: retombée poétique après le point culminant.. Action: le personnage reprend son souffle ou s'éloigne. Emotion: apaisement. Set: retour à un espace plus ouvert et respirant. Camera: recul lent. High-end music video aesthetic, realistic motion, production-ready, no subtitles.
+
+Clip 12 - clip_12
+Durée : 12 secondes
+Description : conclusion visuelle mémorable qui referme le récit sur une note forte.
+Prompt Image IA : cinematic final wide shot, dusk light, poetic ending, memorable composition
+Prompt Video IA : Create a 16:9 YouTube Cinématographique caribéen video shot for "Bòd lanmè pa lwen". Scene: conclusion visuelle mémorable qui referme le récit sur une note forte.. Action: le personnage s'éloigne ou reste immobile dans un tableau final. Emotion: résolution. Set: décor initial réinterprété. Camera: recul lent. High-end music video aesthetic, realistic motion, production-ready, no subtitles.

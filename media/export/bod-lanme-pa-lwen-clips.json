@@ -1,0 +1,117 @@
+{
+  "titre": "Bòd lanmè pa lwen",
+  "format": "16:9 YouTube",
+  "style": "Cinématographique caribéen",
+  "duree": "3 minutes",
+  "provider": "ollama+pollinations",
+  "clips": [
+    {
+      "id": 1,
+      "nom": "clip_01",
+      "duree": "12 secondes",
+      "description": "plan d'ouverture atmosphérique qui installe le lieu, le ton et le personnage principal.",
+      "promptImage": "cinematic opening shot, tropical environment, soft natural light, emotional atmosphere",
+      "promptVideo": "Create a 16:9 YouTube Cinématographique caribéen video shot for \"Bòd lanmè pa lwen\". Scene: plan d'ouverture atmosphérique qui installe le lieu, le ton et le personnage principal.. Action: le personnage entre dans le cadre et observe l'horizon. Emotion: attente. Set: environnement principal du récit. Camera: travelling avant lent. High-end music video aesthetic, realistic motion, production-ready, no subtitles.",
+      "imageTestUrl": "/api/test-image?prompt=cinematic+opening+shot%2C+tropical+environment%2C+soft+natural+light%2C+emotional+atmosphere&width=1280&height=720&seed=1"
+    },
+    {
+      "id": 2,
+      "nom": "clip_02",
+      "duree": "12 secondes",
+      "description": "alternance de détails symboliques liés au thème de la vidéo.",
+      "promptImage": "close-up symbolic details, textured set, cinematic contrast, reflective mood",
+      "promptVideo": "Create a 16:9 YouTube Cinématographique caribéen video shot for \"Bòd lanmè pa lwen\". Scene: alternance de détails symboliques liés au thème de la vidéo.. Action: gestes lents et contemplatifs. Emotion: introspection. Set: éléments de décor texturés et expressifs. Camera: caméra portée stabilisée. High-end music video aesthetic, realistic motion, production-ready, no subtitles.",
+      "imageTestUrl": "/api/test-image?prompt=close-up+symbolic+details%2C+textured+set%2C+cinematic+contrast%2C+reflective+mood&width=1280&height=720&seed=2"
+    },
+    {
+      "id": 3,
+      "nom": "clip_03",
+      "duree": "12 secondes",
+      "description": "montée d'intensité avec mouvement plus ample et décor plus vivant.",
+      "promptImage": "medium shot, golden hour, determined character, dynamic composition",
+      "promptVideo": "Create a 16:9 YouTube Cinématographique caribéen video shot for \"Bòd lanmè pa lwen\". Scene: montée d'intensité avec mouvement plus ample et décor plus vivant.. Action: le personnage avance avec détermination. Emotion: élan. Set: espace ouvert avec profondeur marquée. Camera: panoramique fluide. High-end music video aesthetic, realistic motion, production-ready, no subtitles.",
+      "imageTestUrl": "/api/test-image?prompt=medium+shot%2C+golden+hour%2C+determined+character%2C+dynamic+composition&width=1280&height=720&seed=3"
+    },
+    {
+      "id": 4,
+      "nom": "clip_04",
+      "duree": "12 secondes",
+      "description": "plan culminant qui met en avant l'émotion centrale du projet.",
+      "promptImage": "dramatic close shot, expressive face, shallow depth of field, emotional climax",
+      "promptVideo": "Create a 16:9 YouTube Cinématographique caribéen video shot for \"Bòd lanmè pa lwen\". Scene: plan culminant qui met en avant l'émotion centrale du projet.. Action: expression intense face caméra. Emotion: impact. Set: arrière-plan diffus pour isoler le sujet. Camera: léger arc de cercle. High-end music video aesthetic, realistic motion, production-ready, no subtitles.",
+      "imageTestUrl": "/api/test-image?prompt=dramatic+close+shot%2C+expressive+face%2C+shallow+depth+of+field%2C+emotional+climax&width=1280&height=720&seed=4"
+    },
+    {
+      "id": 5,
+      "nom": "clip_05",
+      "duree": "12 secondes",
+      "description": "transition visuelle qui relie le récit à un nouvel espace ou une nouvelle énergie.",
+      "promptImage": "cinematic transition shot, lateral tracking, soft backlight, changing energy",
+      "promptVideo": "Create a 16:9 YouTube Cinématographique caribéen video shot for \"Bòd lanmè pa lwen\". Scene: transition visuelle qui relie le récit à un nouvel espace ou une nouvelle énergie.. Action: le personnage change de rythme et de direction. Emotion: bascule. Set: passage entre deux zones du décor. Camera: travelling latéral souple. High-end music video aesthetic, realistic motion, production-ready, no subtitles.",
+      "imageTestUrl": "/api/test-image?prompt=cinematic+transition+shot%2C+lateral+tracking%2C+soft+backlight%2C+changing+energy&width=1280&height=720&seed=5"
+    },
+    {
+      "id": 6,
+      "nom": "clip_06",
+      "duree": "12 secondes",
+      "description": "tableau chorégraphié ou performatif qui donne de l'ampleur au clip.",
+      "promptImage": "music video wide shot, choreographed movement, premium lighting, epic composition",
+      "promptVideo": "Create a 16:9 YouTube Cinématographique caribéen video shot for \"Bòd lanmè pa lwen\". Scene: tableau chorégraphié ou performatif qui donne de l'ampleur au clip.. Action: mouvement collectif ou performance centrale. Emotion: puissance. Set: espace ouvert mis en valeur par la composition. Camera: grue virtuelle ou drone lent. High-end music video aesthetic, realistic motion, production-ready, no subtitles.",
+      "imageTestUrl": "/api/test-image?prompt=music+video+wide+shot%2C+choreographed+movement%2C+premium+lighting%2C+epic+composition&width=1280&height=720&seed=6"
+    },
+    {
+      "id": 7,
+      "nom": "clip_07",
+      "duree": "12 secondes",
+      "description": "moment suspendu plus intime avant la dernière montée dramatique.",
+      "promptImage": "intimate cinematic close-up, soft wrap light, symbolic gesture, emotional pause",
+      "promptVideo": "Create a 16:9 YouTube Cinématographique caribéen video shot for \"Bòd lanmè pa lwen\". Scene: moment suspendu plus intime avant la dernière montée dramatique.. Action: regard intérieur ou geste symbolique. Emotion: vulnérabilité. Set: décor apaisé avec textures naturelles. Camera: caméra fixe respirante. High-end music video aesthetic, realistic motion, production-ready, no subtitles.",
+      "imageTestUrl": "/api/test-image?prompt=intimate+cinematic+close-up%2C+soft+wrap+light%2C+symbolic+gesture%2C+emotional+pause&width=1280&height=720&seed=7"
+    },
+    {
+      "id": 8,
+      "nom": "clip_08",
+      "duree": "12 secondes",
+      "description": "relance rythmique qui prépare la séquence finale.",
+      "promptImage": "dynamic medium shot, energetic handheld feel, cinematic tension, vivid environment",
+      "promptVideo": "Create a 16:9 YouTube Cinématographique caribéen video shot for \"Bòd lanmè pa lwen\". Scene: relance rythmique qui prépare la séquence finale.. Action: accélération du jeu ou de la progression. Emotion: tension. Set: décor animé par le vent, la foule ou les éléments. Camera: mouvement d'épaule énergique. High-end music video aesthetic, realistic motion, production-ready, no subtitles.",
+      "imageTestUrl": "/api/test-image?prompt=dynamic+medium+shot%2C+energetic+handheld+feel%2C+cinematic+tension%2C+vivid+environment&width=1280&height=720&seed=8"
+    },
+    {
+      "id": 9,
+      "nom": "clip_09",
+      "duree": "12 secondes",
+      "description": "pré-climax visuel avec composition très graphique.",
+      "promptImage": "graphic cinematic tableau, sculpted light, strong pose, visual statement",
+      "promptVideo": "Create a 16:9 YouTube Cinématographique caribéen video shot for \"Bòd lanmè pa lwen\". Scene: pré-climax visuel avec composition très graphique.. Action: pose, arrêt ou geste clé du récit. Emotion: affirmation. Set: décor stylisé à forte identité. Camera: zoom lent contrôlé. High-end music video aesthetic, realistic motion, production-ready, no subtitles.",
+      "imageTestUrl": "/api/test-image?prompt=graphic+cinematic+tableau%2C+sculpted+light%2C+strong+pose%2C+visual+statement&width=1280&height=720&seed=9"
+    },
+    {
+      "id": 10,
+      "nom": "clip_10",
+      "duree": "12 secondes",
+      "description": "explosion émotionnelle et visuelle au coeur du morceau.",
+      "promptImage": "hero shot, dramatic orbit camera, spectacular lighting, emotional release",
+      "promptVideo": "Create a 16:9 YouTube Cinématographique caribéen video shot for \"Bòd lanmè pa lwen\". Scene: explosion émotionnelle et visuelle au coeur du morceau.. Action: performance frontale et engagée. Emotion: libération. Set: décor principal à son maximum d'intensité. Camera: orbite ample autour du sujet. High-end music video aesthetic, realistic motion, production-ready, no subtitles.",
+      "imageTestUrl": "/api/test-image?prompt=hero+shot%2C+dramatic+orbit+camera%2C+spectacular+lighting%2C+emotional+release&width=1280&height=720&seed=10"
+    },
+    {
+      "id": 11,
+      "nom": "clip_11",
+      "duree": "12 secondes",
+      "description": "retombée poétique après le point culminant.",
+      "promptImage": "poetic contemplative shot, slow pull back, dusk atmosphere, emotional calm",
+      "promptVideo": "Create a 16:9 YouTube Cinématographique caribéen video shot for \"Bòd lanmè pa lwen\". Scene: retombée poétique après le point culminant.. Action: le personnage reprend son souffle ou s'éloigne. Emotion: apaisement. Set: retour à un espace plus ouvert et respirant. Camera: recul lent. High-end music video aesthetic, realistic motion, production-ready, no subtitles.",
+      "imageTestUrl": "/api/test-image?prompt=poetic+contemplative+shot%2C+slow+pull+back%2C+dusk+atmosphere%2C+emotional+calm&width=1280&height=720&seed=11"
+    },
+    {
+      "id": 12,
+      "nom": "clip_12",
+      "duree": "12 secondes",
+      "description": "conclusion visuelle mémorable qui referme le récit sur une note forte.",
+      "promptImage": "cinematic final wide shot, dusk light, poetic ending, memorable composition",
+      "promptVideo": "Create a 16:9 YouTube Cinématographique caribéen video shot for \"Bòd lanmè pa lwen\". Scene: conclusion visuelle mémorable qui referme le récit sur une note forte.. Action: le personnage s'éloigne ou reste immobile dans un tableau final. Emotion: résolution. Set: décor initial réinterprété. Camera: recul lent. High-end music video aesthetic, realistic motion, production-ready, no subtitles.",
+      "imageTestUrl": "/api/test-image?prompt=cinematic+final+wide+shot%2C+dusk+light%2C+poetic+ending%2C+memorable+composition&width=1280&height=720&seed=12"
+    }
+  ]
+}

@@ -1,0 +1,213 @@
+import { promises as fs } from "fs";
+import path from "path";
+import { del, list, put } from "@vercel/blob";
+
+type StoragePutOptions = {
+  contentType?: string;
+};
+
+export type StorageItem = {
+  key: string;
+  url?: string;
+  size?: number;
+  uploadedAt?: Date;
+};
+
+const MEDIA_ROOT = path.join(process.cwd(), "media");
+
+function normalizeKey(key: string) {
+  return key.replace(/^\/+/, "").replace(/\\/g, "/");
+}
+
+function cloudPrefix() {
+  const prefix = process.env.CLOUD_STORAGE_PREFIX?.trim();
+  return prefix ? normalizeKey(prefix) : "rudyo-video-studio";
+}
+
+function toCloudPathname(key: string) {
+  return `${cloudPrefix()}/${normalizeKey(key)}`;
+}
+
+function fromCloudPathname(pathname: string) {
+  const root = `${cloudPrefix()}/`;
+  return pathname.startsWith(root) ? pathname.slice(root.length) : pathname;
+}
+
+function toLocalPath(key: string) {
+  return path.join(MEDIA_ROOT, normalizeKey(key));
+}
+
+export function isCloudStorageEnabled() {
+  return Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+}
+
+export function toClientFileRef(key: string, publicUrl?: string) {
+  if (isCloudStorageEnabled() && publicUrl) {
+    return publicUrl;
+  }
+
+  return `media/${normalizeKey(key)}`;
+}
+
+async function findCloudBlobByKey(key: string) {
+  const pathname = toCloudPathname(key);
+  const { blobs } = await list({ prefix: pathname, limit: 1000 });
+  return blobs.find((blob) => blob.pathname === pathname);
+}
+
+export async function putStorageBuffer(
+  key: string,
+  buffer: Buffer,
+  options: StoragePutOptions = {},
+) {
+  const normalized = normalizeKey(key);
+
+  if (isCloudStorageEnabled()) {
+    const blob = await put(toCloudPathname(normalized), buffer, {
+      access: "public",
+      addRandomSuffix: false,
+      allowOverwrite: true,
+      contentType: options.contentType,
+    });
+
+    return {
+      key: normalized,
+      url: blob.url,
+    };
+  }
+
+  const localPath = toLocalPath(normalized);
+  await fs.mkdir(path.dirname(localPath), { recursive: true });
+  await fs.writeFile(localPath, buffer);
+
+  return {
+    key: normalized,
+    url: undefined,
+  };
+}
+
+export async function putStorageText(
+  key: string,
+  text: string,
+  options: StoragePutOptions = {},
+) {
+  const contentType = options.contentType || "text/plain; charset=utf-8";
+  return putStorageBuffer(key, Buffer.from(text, "utf8"), { contentType });
+}
+
+export async function readStorageBuffer(key: string) {
+  const normalized = normalizeKey(key);
+
+  if (isCloudStorageEnabled()) {
+    const blob = await findCloudBlobByKey(normalized);
+
+    if (!blob) {
+      return null;
+    }
+
+    const response = await fetch(blob.url);
+
+    if (!response.ok) {
+      throw new Error(`Impossible de lire le blob (${response.status}).`);
+    }
+
+    return Buffer.from(await response.arrayBuffer());
+  }
+
+  try {
+    return await fs.readFile(toLocalPath(normalized));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return null;
+    }
+
+    throw error;
+  }
+}
+
+export async function readStorageText(key: string) {
+  const buffer = await readStorageBuffer(key);
+  return buffer ? buffer.toString("utf8") : null;
+}
+
+export async function listStorage(prefix: string): Promise<StorageItem[]> {
+  const normalizedPrefix = normalizeKey(prefix);
+
+  if (isCloudStorageEnabled()) {
+    let cursor: string | undefined;
+    const items: StorageItem[] = [];
+
+    do {
+      const response = await list({
+        prefix: toCloudPathname(normalizedPrefix),
+        cursor,
+        limit: 1000,
+      });
+
+      items.push(
+        ...response.blobs.map((blob) => ({
+          key: fromCloudPathname(blob.pathname),
+          url: blob.url,
+          size: blob.size,
+          uploadedAt: blob.uploadedAt,
+        })),
+      );
+
+      cursor = response.hasMore ? response.cursor : undefined;
+    } while (cursor);
+
+    return items;
+  }
+
+  const localDir = toLocalPath(normalizedPrefix);
+
+  try {
+    const entries = await fs.readdir(localDir, { withFileTypes: true });
+    const files = entries.filter((entry) => entry.isFile());
+
+    return Promise.all(
+      files.map(async (entry) => {
+        const filePath = path.join(localDir, entry.name);
+        const stats = await fs.stat(filePath);
+
+        return {
+          key: normalizeKey(path.posix.join(normalizedPrefix, entry.name)),
+          size: stats.size,
+          uploadedAt: stats.mtime,
+        } satisfies StorageItem;
+      }),
+    );
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return [];
+    }
+
+    throw error;
+  }
+}
+
+export async function deleteStorage(key: string) {
+  const normalized = normalizeKey(key);
+
+  if (isCloudStorageEnabled()) {
+    const blob = await findCloudBlobByKey(normalized);
+
+    if (!blob) {
+      return false;
+    }
+
+    await del(blob.url);
+    return true;
+  }
+
+  try {
+    await fs.unlink(toLocalPath(normalized));
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return false;
+    }
+
+    throw error;
+  }
+}

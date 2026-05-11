@@ -1,0 +1,3 @@
+file 'C:/Users/CIP FARO/rudyo-video-studio/media/plans/plan1.mp4'
+file 'C:/Users/CIP FARO/rudyo-video-studio/media/plans/plan2.mp4'
+file 'C:/Users/CIP FARO/rudyo-video-studio/media/plans/plan3.mp4'

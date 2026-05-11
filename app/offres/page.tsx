@@ -128,6 +128,43 @@ export default function OffresPage() {
         </p>
       </section>
 
+      {/* Paiement par virement */}
+      <section className="max-w-2xl mx-auto px-6 mb-16">
+        <div className="rounded-2xl border border-slate-700 bg-slate-900/60 p-6 backdrop-blur-md">
+          <h3 className="text-lg font-bold text-white mb-1">
+            💳 Paiement par virement bancaire (SWIFT)
+          </h3>
+          <p className="text-slate-400 text-sm mb-4">
+            Règlement accepté par virement SEPA ou international.
+          </p>
+          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
+            <dt className="text-slate-500 font-medium">Titulaire</dt>
+            <dd className="text-slate-200 font-semibold">FARO RUDY</dd>
+
+            <dt className="text-slate-500 font-medium">IBAN</dt>
+            <dd className="text-slate-200 font-mono tracking-wide">
+              FR76 1695 8000 0111 8558 0557 133
+            </dd>
+
+            <dt className="text-slate-500 font-medium">BIC / SWIFT</dt>
+            <dd className="text-slate-200 font-mono">QNTOFRP1XXX</dd>
+
+            <dt className="text-slate-500 font-medium">Adresse</dt>
+            <dd className="text-slate-300 leading-5">
+              21 RES LES VANILLES
+              <br />
+              Avenue de l'Ouest, Le RAIZET
+              <br />
+              97139 LES ABYMES
+            </dd>
+          </dl>
+          <p className="mt-4 text-xs text-slate-500">
+            Indiquez votre nom et l'intitulé de la prestation en référence du
+            virement. Confirmation sous 24 h après réception.
+          </p>
+        </div>
+      </section>
+
       {/* Footer */}
       <footer className="border-t border-slate-800 py-8 text-center text-slate-500 text-sm">
         <p>

@@ -20,7 +20,7 @@ export type RemoteAiSettings = {
   label: string;
 };
 
-const DEFAULT_REMOTE_MODEL = "gpt-4o-mini";
+const DEFAULT_REMOTE_MODEL = "gpt-5.5";
 const DEFAULT_OLLAMA_MODEL = "llama3.1:8b";
 const DEFAULT_BLACKBOX_BASE_URL = "https://api.blackbox.ai";
 const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com";
@@ -45,6 +45,21 @@ const AI_MODEL_OPTIONS: Record<AiProvider, AiModelOption[]> = {
   ],
   openai: [
     {
+      value: "gpt-5.5",
+      label: "gpt-5.5",
+      description: "Dernier modèle haute performance",
+    },
+    {
+      value: "gpt-5.5-turbo",
+      label: "gpt-5.5-turbo",
+      description: "Optimisé pour la rapidité et l'efficacité",
+    },
+    {
+      value: "gpt-5.5-preview",
+      label: "gpt-5.5-preview",
+      description: "Version preview avec capacités étendues",
+    },
+    {
       value: "gpt-4o-mini",
       label: "gpt-4o-mini",
       description: "Rapide et économique",
@@ -61,6 +76,16 @@ const AI_MODEL_OPTIONS: Record<AiProvider, AiModelOption[]> = {
     },
   ],
   blackbox: [
+    {
+      value: "gpt-5.5",
+      label: "gpt-5.5",
+      description: "Dernier modèle haute performance",
+    },
+    {
+      value: "gpt-5.5-turbo",
+      label: "gpt-5.5-turbo",
+      description: "Optimisé pour la rapidité et l'efficacité",
+    },
     {
       value: "gpt-4o-mini",
       label: "gpt-4o-mini",

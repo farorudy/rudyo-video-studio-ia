@@ -1,3 +1,55 @@
+"use client";
+import { useState } from "react";
+
+async function startCheckout(productId: string) {
+  const res = await fetch("/api/checkout", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ productId }),
+  });
+
+  const data = await res.json();
+  if (data.url) {
+    window.location.href = data.url;
+    return;
+  }
+
+  throw new Error(data.error ?? "Impossible de lancer le paiement.");
+}
+
+function StripeButton({
+  productId,
+  label = "Payer par carte 💳",
+  className = "",
+}: {
+  productId: string;
+  label?: string;
+  className?: string;
+}) {
+  const [loading, setLoading] = useState(false);
+
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        try {
+          setLoading(true);
+          await startCheckout(productId);
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "Erreur de paiement.";
+          alert(message);
+          setLoading(false);
+        }
+      }}
+      disabled={loading}
+      className={`text-center text-sm font-semibold bg-emerald-700 hover:bg-emerald-600 disabled:opacity-60 text-white px-4 py-2 rounded-lg transition-all ${className}`}
+    >
+      {loading ? "Redirection..." : label}
+    </button>
+  );
+}
+
 export default function OffresPage() {
   return (
     <main className="min-h-screen bg-[#050816] text-slate-100 font-sans">
@@ -50,12 +102,19 @@ export default function OffresPage() {
               </li>
             ))}
           </ul>
-          <a
-            href="mailto:contact@cipfaro.com?subject=Pack%20Vidéo%20IA%20Express%2099€"
-            className="inline-block bg-white text-purple-900 font-bold px-8 py-3 rounded-xl hover:bg-purple-50 transition-all"
-          >
-            Commander ce pack
-          </a>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+            <a
+              href="mailto:contact@cipfaro.com?subject=Pack%20Vidéo%20IA%20Express%2099€"
+              className="inline-block bg-white text-purple-900 font-bold px-8 py-3 rounded-xl hover:bg-purple-50 transition-all"
+            >
+              Commander par email
+            </a>
+            <StripeButton
+              productId="express"
+              label="Payer par carte 💳 - 99 €"
+              className="px-8 py-3 text-base"
+            />
+          </div>
         </div>
       </section>
 
@@ -83,6 +142,38 @@ export default function OffresPage() {
         <div className="grid sm:grid-cols-3 gap-6">
           {abonnements.map((ab) => (
             <AbonnementCard key={ab.nom} {...ab} />
+          ))}
+        </div>
+      </section>
+
+      {/* Credits iApwsh */}
+      <section className="max-w-5xl mx-auto px-6 mb-20">
+        <h2 className="text-2xl font-bold text-center mb-3">
+          Achats de credit iApwsh
+        </h2>
+        <p className="text-center text-slate-400 mb-10 text-sm">
+          Rechargez vos credits iApwsh pour commander vos prochaines creations.
+        </p>
+        <div className="grid sm:grid-cols-3 gap-6">
+          {creditsIapwsh.map((credit) => (
+            <div
+              key={credit.productId}
+              className="bg-slate-900/60 border border-slate-700/60 rounded-2xl p-6"
+            >
+              <p className="text-xs uppercase tracking-wide text-emerald-300 mb-2">
+                Credits iApwsh
+              </p>
+              <h3 className="text-lg font-bold text-white mb-1">
+                {credit.title}
+              </h3>
+              <p className="text-3xl font-extrabold text-white mb-2">
+                {credit.price}
+              </p>
+              <p className="text-sm text-slate-400 mb-4">
+                {credit.description}
+              </p>
+              <StripeButton productId={credit.productId} className="w-full" />
+            </div>
           ))}
         </div>
       </section>
@@ -151,11 +242,7 @@ export default function OffresPage() {
 
             <dt className="text-slate-500 font-medium">Adresse</dt>
             <dd className="text-slate-300 leading-5">
-              21 RES LES VANILLES
-              <br />
-              Avenue de l'Ouest, Le RAIZET
-              <br />
-              97139 LES ABYMES
+              Rue Coulée Zebsi, beausoleil, 97139 Les abymes
             </dd>
           </dl>
           <p className="mt-4 text-xs text-slate-500">
@@ -189,6 +276,7 @@ function PackCard({
   priceNote,
   items,
   mailto,
+  productId,
 }: {
   emoji: string;
   title: string;
@@ -196,6 +284,7 @@ function PackCard({
   priceNote?: string;
   items: string[];
   mailto: string;
+  productId: string;
 }) {
   return (
     <div className="bg-slate-900/60 border border-slate-700/60 rounded-2xl p-6 flex flex-col">
@@ -214,8 +303,9 @@ function PackCard({
         href={`mailto:contact@cipfaro.com?subject=${encodeURIComponent(mailto)}`}
         className="block text-center text-sm font-semibold bg-purple-900/40 hover:bg-purple-800/50 border border-purple-600/40 text-purple-200 px-4 py-2 rounded-lg transition-all"
       >
-        Commander →
+        Commander par email →
       </a>
+      <StripeButton productId={productId} className="w-full mt-2" />
     </div>
   );
 }
@@ -226,12 +316,14 @@ function AbonnementCard({
   videos,
   features,
   highlight,
+  productId,
 }: {
   nom: string;
   prix: string;
   videos: string;
   features: string[];
   highlight?: boolean;
+  productId: string;
 }) {
   return (
     <div
@@ -259,8 +351,9 @@ function AbonnementCard({
             : "bg-purple-900/40 hover:bg-purple-800/50 border border-purple-600/40 text-purple-200"
         }`}
       >
-        S'abonner →
+        S'abonner par email →
       </a>
+      <StripeButton productId={productId} className="w-full mt-2" />
     </div>
   );
 }
@@ -273,6 +366,7 @@ const packs = [
     title: "Flyer animé événement",
     price: "à partir de 39 €",
     priceNote: "15 sec · 39 € — 30 sec · 79 €",
+    productId: "flyer",
     items: [
       "Animation de votre affiche",
       "Musique de fond",
@@ -286,6 +380,7 @@ const packs = [
     title: "Vidéo promo formation",
     price: "à partir de 120 €",
     priceNote: "30 sec · 120–180 € — 1 min · 250–350 €",
+    productId: "promo",
     items: [
       "Script professionnel",
       "Voix off",
@@ -299,6 +394,7 @@ const packs = [
     title: "Clip lyrics créole / français",
     price: "à partir de 250 €",
     priceNote: "Clip paroles animé · 250–500 €",
+    productId: "lyrics",
     items: [
       "Fond animé",
       "Paroles synchronisées",
@@ -312,6 +408,7 @@ const packs = [
     title: "Storyboard clip musical",
     price: "à partir de 80 €",
     priceNote: "Storyboard PDF · 80–150 €",
+    productId: "storyboard",
     items: [
       "20 à 30 plans décrits",
       "Prompts Runway / Pika / Sora",
@@ -325,6 +422,7 @@ const packs = [
     title: "Capsule pédagogique Moodle",
     price: "à partir de 250 €",
     priceNote: "2-3 min · 250–450 € — 5-8 min · 600–1 200 €",
+    productId: "moodle",
     items: [
       "Script pédagogique",
       "Voix off + visuels",
@@ -338,6 +436,7 @@ const packs = [
     title: "Clip semi-IA complet",
     price: "à partir de 500 €",
     priceNote: "1 min · 500–900 € — 3 min · 1 200–2 500 €",
+    productId: "clip",
     items: [
       "Storyboard + plans IA",
       "Montage professionnel",
@@ -353,6 +452,7 @@ const abonnements = [
     nom: "Starter",
     prix: "99 €/mois",
     videos: "2 vidéos courtes / mois",
+    productId: "starter",
     features: [
       "2 vidéos 15–30 sec",
       "Formats réseaux inclus",
@@ -363,6 +463,7 @@ const abonnements = [
     nom: "Pro",
     prix: "249 €/mois",
     videos: "6 vidéos / mois",
+    productId: "pro",
     features: [
       "6 vidéos jusqu'à 60 sec",
       "Sous-titres inclus",
@@ -375,11 +476,33 @@ const abonnements = [
     nom: "Premium",
     prix: "499 €/mois",
     videos: "12 vidéos / mois",
+    productId: "premium",
     features: [
       "12 vidéos + montage avancé",
       "Stratégie de contenu",
       "Clips lyrics inclus",
       "Suivi dédié",
     ],
+  },
+];
+
+const creditsIapwsh = [
+  {
+    title: "Pack 50 credits",
+    price: "10 €",
+    description: "Pour petits tests et generations rapides.",
+    productId: "iapwsh_50",
+  },
+  {
+    title: "Pack 150 credits",
+    price: "25 €",
+    description: "Le meilleur compromis pour usage regulier.",
+    productId: "iapwsh_150",
+  },
+  {
+    title: "Pack 400 credits",
+    price: "60 €",
+    description: "Pour la production intensive et les equipes.",
+    productId: "iapwsh_400",
   },
 ];

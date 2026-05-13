@@ -66,3 +66,4 @@ Le montage s'appuie sur `ffmpeg` / `ffprobe` via les scripts `scripts/montage.js
 - En serverless strict: prévoyez un worker dédié (container/VM) si FFmpeg n'est pas disponible.
 
 L'analyse audio locale utilise aussi `ffprobe` (inclus avec FFmpeg).
+# rudyo-video-studio-ia

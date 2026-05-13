@@ -68,3 +68,4 @@ Le montage s'appuie sur `ffmpeg` / `ffprobe` via les scripts `scripts/montage.js
 L'analyse audio locale utilise aussi `ffprobe` (inclus avec FFmpeg).
 # rudyo-video-studio-ia
 # rudyo-video-studio-
+# rudyo-video-studio-ia

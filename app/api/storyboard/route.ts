@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { CreditAction } from "@/lib/credit-costs";
 import {
-  callRemoteChatCompletion,
-  isAiProvider,
-  isRemoteAiProvider,
-  resolveDefaultAiProvider,
-  resolveModelForProvider,
-  resolveRemoteAiSettings,
-} from "@/lib/ai-provider";
-import { callOllamaGenerate } from "@/lib/ollama";
+  logAiUsage,
+  reserveCredits,
+  confirmCreditUsage,
+  refundCreditUsage,
+  getCurrentUserFromRequest,
+} from "@/lib/credit-utils";
+import { generateWithBestProvider } from "@/lib/ai/generate";
 
 const OLLAMA_BASE_URL =
   process.env.OLLAMA_BASE_URL?.replace(/\/$/, "") || "http://127.0.0.1:11434";
@@ -23,42 +24,6 @@ type StoryboardRequestBody = {
   nombrePlans?: string | number;
   provider?: string;
   model?: string;
-};
-
-type MockStoryboardResult = {
-  titre: string;
-  type_video: string;
-  format: string;
-  style: string;
-  duree_totale: string;
-  resume: string;
-  storyboard: Array<{
-    plan: number;
-    duree: string;
-    description: string;
-    camera: string;
-    texte_ecran: string;
-    prompt_video_ia: string;
-    transition: string;
-  }>;
-};
-
-type OllamaStoryboardResult = {
-  titre?: string;
-  type_video?: string;
-  format?: string;
-  style?: string;
-  duree_totale?: string;
-  resume?: string;
-  storyboard?: Array<{
-    plan?: number;
-    duree?: string;
-    description?: string;
-    camera?: string;
-    texte_ecran?: string;
-    prompt_video_ia?: string;
-    transition?: string;
-  }>;
 };
 
 function parseDurationSeconds(value: string | undefined) {
@@ -288,220 +253,6 @@ Cette version est un storyboard de démonstration généré localement pour perm
 ${plans}`;
 }
 
-function buildStructuredMockResult(): MockStoryboardResult {
-  return {
-    titre: "Bòd lanmè pa lwen",
-    type_video: "Clip musical",
-    format: "16:9 YouTube",
-    style: "Cinématographique caribéen",
-    duree_totale: "3 minutes",
-    resume: "Clip sur la persévérance, l’amour et le lanbéli en Guadeloupe.",
-    storyboard: [
-      {
-        plan: 1,
-        duree: "6 secondes",
-        description: "Vue du bord de mer au lever du soleil.",
-        camera: "Travelling lent vers l’océan.",
-        texte_ecran: "Bòd lanmè pa lwen",
-        prompt_video_ia:
-          "Cinematic Caribbean seaside in Guadeloupe at sunrise, golden light, calm ocean, emotional music video style",
-        transition: "Fondu lent",
-      },
-      {
-        plan: 2,
-        duree: "5 secondes",
-        description: "Le chanteur marche seul près de la mer.",
-        camera: "Plan moyen avec mouvement latéral.",
-        texte_ecran: "An nou rivé gadé",
-        prompt_video_ia:
-          "A Caribbean male singer walking near the ocean, thoughtful mood, realistic cinematic look, soft wind, music video",
-        transition: "Cut doux",
-      },
-    ],
-  };
-}
-
-function structuredMockToText(result: MockStoryboardResult) {
-  const plans = result.storyboard
-    .map(
-      (plan) => `Plan ${plan.plan}
-- Durée : ${plan.duree}
-- Description visuelle : ${plan.description}
-- Mouvement caméra : ${plan.camera}
-- Texte écran : ${plan.texte_ecran}
-- Prompt vidéo IA : ${plan.prompt_video_ia}
-- Transition : ${plan.transition}`,
-    )
-    .join("\n\n");
-
-  return `Titre du projet : ${result.titre}
-
-Résumé de l'histoire :
-${result.resume}
-
-${plans}`;
-}
-
-function normalizeStructuredResult(
-  value: OllamaStoryboardResult,
-  body: StoryboardRequestBody,
-) {
-  const title = body.titre?.trim() || "Projet sans titre";
-
-  if (!Array.isArray(value.storyboard) || value.storyboard.length === 0) {
-    return null;
-  }
-
-  return {
-    titre: value.titre?.trim() || title,
-    type_video:
-      value.type_video?.trim() || body.typeVideo?.trim() || "Clip musical",
-    format: value.format?.trim() || body.format?.trim() || "16:9 YouTube",
-    style:
-      value.style?.trim() || body.style?.trim() || "Cinématographique local",
-    duree_totale:
-      value.duree_totale?.trim() || body.duree?.trim() || "Durée libre",
-    resume:
-      value.resume?.trim() ||
-      body.description?.trim() ||
-      "Storyboard généré localement avec Ollama.",
-    storyboard: value.storyboard.filter(Boolean).map((plan, index) => ({
-      plan: Number.isFinite(plan.plan) ? Number(plan.plan) : index + 1,
-      duree: plan.duree?.trim() || "6 secondes",
-      description:
-        plan.description?.trim() ||
-        "Description visuelle à préciser dans le storyboard.",
-      camera: plan.camera?.trim() || "Mouvement caméra fluide",
-      texte_ecran: plan.texte_ecran?.trim() || "",
-      prompt_video_ia:
-        plan.prompt_video_ia?.trim() ||
-        "Cinematic scene, realistic motion, music video style",
-      transition: plan.transition?.trim() || "Cut doux",
-    })),
-  } satisfies MockStoryboardResult;
-}
-
-function extractJsonPayload(rawText: string) {
-  const fencedMatch = rawText.match(/```json\s*([\s\S]*?)```/i);
-
-  if (fencedMatch?.[1]) {
-    return fencedMatch[1].trim();
-  }
-
-  const startIndex = rawText.indexOf("{");
-  const endIndex = rawText.lastIndexOf("}");
-
-  if (startIndex >= 0 && endIndex > startIndex) {
-    return rawText.slice(startIndex, endIndex + 1);
-  }
-
-  return rawText.trim();
-}
-
-function buildOllamaPrompt(body: StoryboardRequestBody) {
-  const { titre, typeVideo, duree, format, style, description, nombrePlans } =
-    body;
-  const requestedPlans = Number.parseInt(String(nombrePlans ?? ""), 10);
-  const safePlanCount = Number.isFinite(requestedPlans)
-    ? Math.min(12, Math.max(2, requestedPlans))
-    : 8;
-
-  return `Tu es un réalisateur vidéo. Réponds uniquement en JSON valide sans markdown.
-
-Construit un storyboard pour :
-- titre: ${titre ?? "Sans titre"}
-- type_video: ${typeVideo ?? "Clip musical"}
-- duree_totale: ${duree ?? "3 minutes"}
-- format: ${format ?? "16:9 YouTube"}
-- style: ${style ?? "Cinématographique"}
-- description: ${description ?? "A préciser"}
-- nombre_de_plans: ${safePlanCount}
-
-Format JSON attendu:
-{
-  "titre": "...",
-  "type_video": "...",
-  "format": "...",
-  "style": "...",
-  "duree_totale": "...",
-  "resume": "...",
-  "storyboard": [
-    {
-      "plan": 1,
-      "duree": "6 secondes",
-      "description": "...",
-      "camera": "...",
-      "texte_ecran": "...",
-      "prompt_video_ia": "...",
-      "transition": "..."
-    }
-  ]
-}`;
-}
-
-async function generateStoryboardWithOllama(body: StoryboardRequestBody) {
-  const model = resolveModelForProvider("ollama", body.model);
-  const payload = await callOllamaGenerate(OLLAMA_BASE_URL, {
-    model,
-    prompt: buildOllamaPrompt(body),
-    stream: false,
-    format: "json",
-  });
-  const rawText = payload.response?.trim();
-
-  if (!rawText) {
-    throw new Error("Réponse Ollama vide.");
-  }
-
-  const parsed = JSON.parse(
-    extractJsonPayload(rawText),
-  ) as OllamaStoryboardResult;
-  const normalized = normalizeStructuredResult(parsed, body);
-
-  if (!normalized) {
-    throw new Error("Réponse Ollama incomplète.");
-  }
-
-  return normalized;
-}
-
-async function generateStoryboardWithRemoteProvider(
-  body: StoryboardRequestBody,
-  provider: "openai" | "blackbox",
-) {
-  const settings = resolveRemoteAiSettings(provider, body.model);
-  const completion = await callRemoteChatCompletion({
-    settings,
-    messages: [
-      {
-        role: "system",
-        content:
-          "Tu es un réalisateur vidéo. Réponds uniquement en JSON valide sans markdown.",
-      },
-      {
-        role: "user",
-        content: buildOllamaPrompt(body),
-      },
-    ],
-    temperature: 0.7,
-  });
-
-  const parsed = JSON.parse(
-    extractJsonPayload(completion.content),
-  ) as OllamaStoryboardResult;
-  const normalized = normalizeStructuredResult(parsed, body);
-
-  if (!normalized) {
-    throw new Error(`Réponse ${settings.label} incomplète.`);
-  }
-
-  return {
-    result: normalized,
-    provider,
-    model: settings.model,
-  };
-}
-
 function buildPrompt(body: StoryboardRequestBody) {
   if (typeof body.prompt === "string" && body.prompt.trim()) {
     return body.prompt.trim();
@@ -520,8 +271,7 @@ function buildPrompt(body: StoryboardRequestBody) {
       ? `${requestedPlans}`
       : "10 à 20";
 
-  return `
-Crée un storyboard professionnel à partir de cette idée :
+  return `Crée un storyboard professionnel à partir de cette idée :
 
 Titre : ${titre ?? "Sans titre"}
 Type de vidéo : ${typeVideo ?? "Non précisé"}
@@ -544,76 +294,116 @@ Réponds en français avec :
 - Lumière
 - Action
 - Émotion recherchée
-- Suggestion de prompt image IA
-`;
-}
-
-export async function GET() {
-  const defaultProvider = resolveDefaultAiProvider();
-
-  return NextResponse.json({
-    success: true,
-    message: "Storyboard API prête",
-    provider: defaultProvider,
-    model:
-      defaultProvider === "ollama"
-        ? resolveModelForProvider("ollama")
-        : resolveRemoteAiSettings(defaultProvider).model,
-  });
+- Suggestion de prompt image IA`;
 }
 
 export async function POST(req: NextRequest) {
   let body: StoryboardRequestBody = {};
+  const action: CreditAction = "storyboard_complete";
 
   try {
     body = (await req.json()) as StoryboardRequestBody;
-    const selectedProvider = isAiProvider(body.provider)
-      ? body.provider
-      : resolveDefaultAiProvider();
-
-    if (process.env.USE_MOCK_STORYBOARD === "true") {
-      const mockResult = buildStructuredMockResult();
-
-      return NextResponse.json({
-        success: true,
-        storyboard: structuredMockToText(mockResult),
-        result: mockResult,
-        fallback: true,
-        mock: true,
-      });
+    const user = await getCurrentUserFromRequest(req);
+    if (!user) {
+      return NextResponse.json(
+        { error: "Connectez-vous pour utiliser vos crédits Rudyo." },
+        { status: 401 },
+      );
     }
 
-    if (!buildPrompt(body)) {
+    const prompt = buildPrompt(body);
+    if (!prompt) {
       return NextResponse.json(
         { error: "Le prompt est obligatoire." },
         { status: 400 },
       );
     }
 
-    const generated = isRemoteAiProvider(selectedProvider)
-      ? await generateStoryboardWithRemoteProvider(body, selectedProvider)
-      : {
-          result: await generateStoryboardWithOllama(body),
-          provider: "ollama" as const,
-          model: resolveModelForProvider("ollama", body.model),
-        };
+    const transaction = await reserveCredits(
+      user.id,
+      action,
+      "Réservation storyboard Rudyo",
+      { provider: body.provider ?? "unknown", model: body.model ?? "default" },
+    );
 
-    return NextResponse.json({
-      success: true,
-      storyboard: structuredMockToText(generated.result),
-      result: generated.result,
-      provider: generated.provider,
-      model: generated.model,
-    });
+    try {
+      const generated = await generateWithBestProvider({
+        action,
+        prompt,
+        userId: user.id,
+        quality: process.env.DEFAULT_AI_QUALITY as
+          | "economy"
+          | "balanced"
+          | "premium"
+          | undefined,
+        preferredProvider: body.provider,
+        modelOverride: body.model,
+        userPlan: user.plan,
+        allowPremiumAi: user.allowPremiumAi,
+      });
+
+      await confirmCreditUsage(transaction.id);
+
+      await logAiUsage({
+        userId: user.id,
+        provider: generated.provider,
+        model: generated.model,
+        action,
+        estimatedInputTokens: undefined,
+        estimatedOutputTokens: undefined,
+        estimatedCost: undefined,
+        creditsCharged: transaction.creditsAmount,
+      });
+
+      return NextResponse.json({
+        success: true,
+        storyboard: generated.text,
+        provider: generated.provider,
+        model: generated.model,
+        reason: generated.reason,
+      });
+    } catch (error) {
+      await refundCreditUsage(transaction.id).catch(() => undefined);
+      throw error;
+    }
   } catch (error) {
     console.error("Erreur API storyboard :", error);
+
+    if (
+      error instanceof Error &&
+      error.message.includes("Crédits insuffisants")
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Crédits Rudyo insuffisants ou action non couverte par votre plan.",
+        },
+        { status: 402 },
+      );
+    }
+
+    const currentUser = await getCurrentUserFromRequest(req);
+    if (currentUser) {
+      const pending = await prisma.creditTransaction.findFirst({
+        where: {
+          userId: currentUser.id,
+          status: "PENDING",
+          description: "Réservation storyboard Rudyo",
+        },
+        orderBy: { createdAt: "desc" },
+      });
+      if (pending) {
+        await refundCreditUsage(pending.id).catch((refundError) => {
+          console.error("Erreur remboursement crédit :", refundError);
+        });
+      }
+    }
 
     const fallbackStoryboard = buildMockStoryboard(body);
 
     return NextResponse.json({
       success: true,
       storyboard: fallbackStoryboard,
-      result: null,
       fallback: true,
       provider: "mock-local",
     });

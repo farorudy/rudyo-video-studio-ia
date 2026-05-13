@@ -1,8 +1,9 @@
 "use client";
 import { useState } from "react";
+import Navigation from "../components/Navigation";
 
 async function startCheckout(productId: string) {
-  const res = await fetch("/api/checkout", {
+  const res = await fetch("/api/billing/create-checkout-session", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ productId }),
@@ -53,28 +54,36 @@ function StripeButton({
 export default function OffresPage() {
   return (
     <main className="min-h-screen bg-[#050816] text-slate-100 font-sans">
+      <Navigation />
       {/* Hero */}
-      <section className="max-w-4xl mx-auto px-6 pt-20 pb-12 text-center">
+      <section className="max-w-4xl mx-auto px-6 pt-20 pb-12 text-center mt-16">
         <div className="inline-flex items-center gap-2 bg-purple-900/40 border border-purple-500/30 rounded-full px-4 py-1.5 text-sm text-purple-300 mb-6">
-          🎬 Studio IA propulsé par FFmpeg &amp; Ollama
+          🎬 Rudyo Video Studio IA — crédits internes et abonnements
         </div>
         <h1 className="text-4xl sm:text-5xl font-extrabold leading-tight mb-4">
-          Votre idée devient une{" "}
-          <span className="text-transparent bg-clip-text bg-linear-to-r from-purple-400 to-pink-500">
-            vidéo prête à publier
-          </span>
+          Achetez des crédits Rudyo ou abonnez-vous pour générer vos storyboards
+          IA.
         </h1>
         <p className="text-lg text-slate-400 max-w-2xl mx-auto mb-8">
-          Concerts, formations, associations, artistes, commerces, événements —
-          envoyez votre affiche, texte ou musique. Je vous livre une vidéo
-          professionnelle en MP4.
+          Les crédits Rudyo sont des crédits internes utilisables uniquement sur
+          la plateforme Rudyo Video Studio IA. Ils ne constituent pas des
+          crédits OpenAI et ne donnent pas accès directement aux services
+          OpenAI.
         </p>
-        <a
-          href="mailto:contact@cipfaro.com?subject=Demande%20de%20vidéo%20IA"
-          className="inline-block bg-linear-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-semibold px-8 py-3 rounded-xl transition-all shadow-lg shadow-purple-900/40"
-        >
-          Demander un devis gratuit →
-        </a>
+        <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
+          <a
+            href="/credits"
+            className="inline-block bg-emerald-500 text-slate-950 font-semibold px-8 py-3 rounded-xl transition hover:bg-emerald-400"
+          >
+            Voir mon solde de crédits
+          </a>
+          <a
+            href="/login"
+            className="inline-block bg-slate-900 border border-slate-700 text-white font-semibold px-8 py-3 rounded-xl transition hover:bg-slate-800"
+          >
+            Se connecter
+          </a>
+        </div>
       </section>
 
       {/* Pack vedette */}
@@ -137,43 +146,13 @@ export default function OffresPage() {
         </h2>
         <p className="text-center text-slate-400 mb-10 text-sm">
           Pour associations, artistes, centres de formation et commerces qui
-          publient régulièrement.
+          publient régulièrement. Une fois que vous aurez des clients réguliers,
+          vous pourrez vendre l’accès à la plateforme Rudyo Video Studio IA en
+          abonnement.
         </p>
         <div className="grid sm:grid-cols-3 gap-6">
           {abonnements.map((ab) => (
             <AbonnementCard key={ab.nom} {...ab} />
-          ))}
-        </div>
-      </section>
-
-      {/* Credits iApwsh */}
-      <section className="max-w-5xl mx-auto px-6 mb-20">
-        <h2 className="text-2xl font-bold text-center mb-3">
-          Achats de credit iApwsh
-        </h2>
-        <p className="text-center text-slate-400 mb-10 text-sm">
-          Rechargez vos credits iApwsh pour commander vos prochaines creations.
-        </p>
-        <div className="grid sm:grid-cols-3 gap-6">
-          {creditsIapwsh.map((credit) => (
-            <div
-              key={credit.productId}
-              className="bg-slate-900/60 border border-slate-700/60 rounded-2xl p-6"
-            >
-              <p className="text-xs uppercase tracking-wide text-emerald-300 mb-2">
-                Credits iApwsh
-              </p>
-              <h3 className="text-lg font-bold text-white mb-1">
-                {credit.title}
-              </h3>
-              <p className="text-3xl font-extrabold text-white mb-2">
-                {credit.price}
-              </p>
-              <p className="text-sm text-slate-400 mb-4">
-                {credit.description}
-              </p>
-              <StripeButton productId={credit.productId} className="w-full" />
-            </div>
           ))}
         </div>
       </section>
@@ -362,147 +341,99 @@ function AbonnementCard({
 
 const packs = [
   {
-    emoji: "🎪",
-    title: "Flyer animé événement",
-    price: "à partir de 39 €",
-    priceNote: "15 sec · 39 € — 30 sec · 79 €",
-    productId: "flyer",
+    emoji: "✨",
+    title: "Pack Découverte",
+    price: "9 €",
+    priceNote: "10 crédits Rudyo",
+    productId: "rudyo_10",
     items: [
-      "Animation de votre affiche",
-      "Musique de fond",
-      "Logo + sous-titres",
-      "Formats WhatsApp / Instagram / TikTok",
+      "Idéal pour tester le storyboard IA",
+      "Générations rapides de prompts video",
+      "Export PDF et TXT",
+      "Clé IA personnelle disponible",
     ],
-    mailto: "Pack Flyer animé événement",
+    mailto: "Pack Découverte 10 crédits",
   },
   {
-    emoji: "🎓",
-    title: "Vidéo promo formation",
-    price: "à partir de 120 €",
-    priceNote: "30 sec · 120–180 € — 1 min · 250–350 €",
-    productId: "promo",
+    emoji: "🚀",
+    title: "Pack Créateur",
+    price: "39 €",
+    priceNote: "50 crédits Rudyo",
+    productId: "rudyo_50",
     items: [
-      "Script professionnel",
-      "Voix off",
-      "Visuels + logo",
-      "Sous-titres + appel à l'action",
+      "Pour créateurs réguliers",
+      "Storyboards complets et exports avancés",
+      "Réserves pour prompts et sous-titres",
+      "Accès à la plateforme Rudyo",
     ],
-    mailto: "Pack Vidéo promo formation",
-  },
-  {
-    emoji: "🎤",
-    title: "Clip lyrics créole / français",
-    price: "à partir de 250 €",
-    priceNote: "Clip paroles animé · 250–500 €",
-    productId: "lyrics",
-    items: [
-      "Fond animé",
-      "Paroles synchronisées",
-      "Logo artiste",
-      "Export HD MP4",
-    ],
-    mailto: "Pack Clip lyrics",
+    mailto: "Pack Créateur 50 crédits",
   },
   {
     emoji: "🎬",
-    title: "Storyboard clip musical",
-    price: "à partir de 80 €",
-    priceNote: "Storyboard PDF · 80–150 €",
-    productId: "storyboard",
+    title: "Pack Pro",
+    price: "99 €",
+    priceNote: "150 crédits Rudyo",
+    productId: "rudyo_150",
     items: [
-      "20 à 30 plans décrits",
-      "Prompts Runway / Pika / Sora",
-      "Structure musicale intelligente",
-      "Livraison PDF + JSON",
+      "Usage intensif IA",
+      "Préparation clip complet",
+      "Boost pour exports MP4 futurs",
+      "Crédits à consommer quand vous voulez",
     ],
-    mailto: "Pack Storyboard clip musical",
+    mailto: "Pack Pro 150 crédits",
   },
   {
-    emoji: "📚",
-    title: "Capsule pédagogique Moodle",
-    price: "à partir de 250 €",
-    priceNote: "2-3 min · 250–450 € — 5-8 min · 600–1 200 €",
-    productId: "moodle",
+    emoji: "🏆",
+    title: "Pack Studio",
+    price: "249 €",
+    priceNote: "500 crédits Rudyo",
+    productId: "rudyo_500",
     items: [
-      "Script pédagogique",
-      "Voix off + visuels",
-      "Sous-titres",
-      "Quiz associé + intégration Moodle",
+      "Pour studios et équipes vidéo",
+      "Large inventaire de générations IA",
+      "Sob-resources pour exports et prompts",
+      "Support de plateforme en priorité",
     ],
-    mailto: "Pack Capsule pédagogique Moodle",
-  },
-  {
-    emoji: "🎥",
-    title: "Clip semi-IA complet",
-    price: "à partir de 500 €",
-    priceNote: "1 min · 500–900 € — 3 min · 1 200–2 500 €",
-    productId: "clip",
-    items: [
-      "Storyboard + plans IA",
-      "Montage professionnel",
-      "Grading cinématique",
-      "Paroles animées + musique",
-    ],
-    mailto: "Pack Clip semi-IA complet",
+    mailto: "Pack Studio 500 crédits",
   },
 ];
 
 const abonnements = [
   {
     nom: "Starter",
-    prix: "99 €/mois",
-    videos: "2 vidéos courtes / mois",
-    productId: "starter",
+    prix: "19 €/mois",
+    videos: "20 générations IA / mois",
+    productId: "starter_monthly",
     features: [
-      "2 vidéos 15–30 sec",
-      "Formats réseaux inclus",
-      "Logo + sous-titres",
+      "Storyboards simples",
+      "Prompts vidéo",
+      "Export PDF",
+      "Accès logiciel Rudyo",
     ],
   },
   {
-    nom: "Pro",
-    prix: "249 €/mois",
-    videos: "6 vidéos / mois",
-    productId: "pro",
+    nom: "Créateur",
+    prix: "49 €/mois",
+    videos: "80 générations IA / mois",
+    productId: "createur_monthly",
     features: [
-      "6 vidéos jusqu'à 60 sec",
-      "Sous-titres inclus",
-      "Formats réseaux",
-      "Priorité 24 h",
+      "Storyboards complets",
+      "Prompts Runway / Pika / Sora",
+      "Sous-titres",
+      "Templates IA",
     ],
     highlight: true,
   },
   {
-    nom: "Premium",
-    prix: "499 €/mois",
-    videos: "12 vidéos / mois",
-    productId: "premium",
+    nom: "Studio",
+    prix: "99 €/mois",
+    videos: "200 générations IA / mois",
+    productId: "studio_monthly",
     features: [
-      "12 vidéos + montage avancé",
-      "Stratégie de contenu",
-      "Clips lyrics inclus",
-      "Suivi dédié",
+      "Projets illimités raisonnables",
+      "Exports avancés",
+      "Support prioritaire",
+      "Accès à la plateforme Rudyo IA",
     ],
-  },
-];
-
-const creditsIapwsh = [
-  {
-    title: "Pack 50 credits",
-    price: "10 €",
-    description: "Pour petits tests et generations rapides.",
-    productId: "iapwsh_50",
-  },
-  {
-    title: "Pack 150 credits",
-    price: "25 €",
-    description: "Le meilleur compromis pour usage regulier.",
-    productId: "iapwsh_150",
-  },
-  {
-    title: "Pack 400 credits",
-    price: "60 €",
-    description: "Pour la production intensive et les equipes.",
-    productId: "iapwsh_400",
   },
 ];

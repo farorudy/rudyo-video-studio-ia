@@ -13,8 +13,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Rudyo Video Studio IA",
-  description: "Créer des storyboards, prompts vidéo et montages avec IA",
+  title: "Farozik - Rudyo Vidéo Studio IA",
+  description:
+    "Transformez vos affiches, chansons, formations et événements en vidéos professionnelles prêtes à publier. Studio vidéo assisté par IA pour artistes, associations, formations et événements.",
+  keywords:
+    "vidéo IA, flyer animé, clip lyrics, capsule pédagogique, moodle, vidéo promo",
 };
 
 export default function RootLayout({

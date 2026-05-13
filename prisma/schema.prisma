@@ -1,0 +1,144 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserPlan {
+  FREE
+  STARTER
+  CREATOR
+  STUDIO
+}
+
+enum BillingStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  INCOMPLETE
+  TRIALING
+}
+
+enum TransactionType {
+  PURCHASE
+  USAGE
+  REFUND
+  BONUS
+  RESERVATION
+}
+
+enum TransactionStatus {
+  PENDING
+  CONFIRMED
+  REFUNDED
+  CANCELED
+}
+
+enum CreditAction {
+  STORYBOARD_SIMPLE
+  STORYBOARD_COMPLETE
+  PROMPTS_VIDEO
+  SCRIPT_VOICEOVER
+  SUBTITLES
+  EXPORT_PDF
+  EXPORT_TXT
+  CLIP_PACK
+  OTHER
+}
+
+model User {
+  id                 String               @id @default(cuid())
+  email              String               @unique
+  name               String?
+  plan               UserPlan             @default(FREE)
+  creditsTotal       Int                  @default(0)
+  creditsUsed        Int                  @default(0)
+  creditsRemaining   Int                  @default(0)
+  monthlyLimit       Int                  @default(0)
+  monthlyUsed        Int                  @default(0)
+  billingStatus      BillingStatus        @default(ACTIVE)
+  stripeCustomerId   String?              @unique
+  preferredAiProvider String?
+  allowPremiumAi     Boolean              @default(false)
+  apiKey             String?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  transactions       CreditTransaction[]
+  aiUsageLogs        AiUsageLog[]
+  subscriptions      Subscription[]
+}
+
+model CreditTransaction {
+  id            String            @id @default(cuid())
+  user          User              @relation(fields: [userId], references: [id])
+  userId        String
+  type          TransactionType
+  action        CreditAction
+  creditsAmount Int
+  description   String
+  metadata      Json?
+  status        TransactionStatus @default(PENDING)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+}
+
+model AiUsageLog {
+  id                   String       @id @default(cuid())
+  user                 User         @relation(fields: [userId], references: [id])
+  userId               String
+  provider             String
+  model                String
+  action               CreditAction
+  quality              String?
+  estimatedInputTokens Int?
+  estimatedOutputTokens Int?
+  estimatedCost        Float?
+  creditsCharged       Int
+  success              Boolean      @default(true)
+  errorMessage         String?
+  createdAt            DateTime     @default(now())
+}
+
+model Subscription {
+  id                    String       @id @default(cuid())
+  user                  User         @relation(fields: [userId], references: [id])
+  userId                String
+  stripeSubscriptionId  String       @unique
+  priceId               String
+  plan                  UserPlan
+  status                BillingStatus
+  currentPeriodStart    DateTime?
+  currentPeriodEnd      DateTime?
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+}
+
+model ProductPlan {
+  id               String   @id @default(cuid())
+  slug             String   @unique
+  name             String
+  monthlyPriceCents Int
+  includedGenerations Int
+  includedCredits  Int
+  allowPremiumAi   Boolean  @default(false)
+  maxProjects      Int      @default(1)
+  stripePriceId    String?  @unique
+  description      String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model CreditPack {
+  id            String   @id @default(cuid())
+  slug          String   @unique
+  name          String
+  priceCents    Int
+  credits       Int
+  stripePriceId String?  @unique
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}

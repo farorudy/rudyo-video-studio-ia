@@ -4,9 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start",
     "lint": "next lint",
+    "postinstall": "prisma generate",
     "montage": "node scripts/montage.js",
     "montage:advanced": "node scripts/montage-advanced.js",
     "montage:smart": "node scripts/montage-smart.js"

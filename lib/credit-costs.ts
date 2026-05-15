@@ -1,5 +1,6 @@
-﻿export const CREDIT_COSTS = {
-  storyboard: 2,`n  storyboard_complete: 5,
+export const CREDIT_COSTS = {
+  storyboard: 2,
+  storyboard_complete: 5,
   script: 2,
   prompts: 3,
   subtitles: 3,
@@ -17,7 +18,8 @@ export type CreditTool = keyof typeof CREDIT_COSTS;
 export type CreditAction = CreditTool;
 
 export const CREDIT_TOOL_LABELS: Record<CreditTool, string> = {
-  storyboard: "Storyboard vidéo",`n  storyboard_complete: "Storyboard complet",
+  storyboard: "Storyboard vidéo",
+  storyboard_complete: "Storyboard complet",
   script: "Script voix off",
   prompts: "Prompts vidéo IA",
   subtitles: "Sous-titres / paroles",
@@ -34,7 +36,10 @@ export const CREDIT_TOOL_LABELS: Record<CreditTool, string> = {
 export const PLAN_LABELS = CREDIT_TOOL_LABELS;
 
 export const CREDIT_TOOL_DESCRIPTIONS: Record<CreditTool, string> = {
-  storyboard: "Créer un storyboard structuré avec scènes, textes écran, caméra et transitions.",`n  storyboard_complete: "Créer un storyboard complet avec découpage, scènes, prompts, structure et recommandations.",
+  storyboard:
+    "Créer un storyboard structuré avec scènes, textes écran, caméra et transitions.",
+  storyboard_complete:
+    "Créer un storyboard complet avec découpage, scènes, prompts, structure et recommandations.",
   script:
     "Rédiger un script ou une voix off professionnelle pour votre vidéo.",
   prompts:
@@ -46,7 +51,7 @@ export const CREDIT_TOOL_DESCRIPTIONS: Record<CreditTool, string> = {
   clip_lyrics:
     "Préparer un projet complet de clip paroles avec structure, storyboard et prompts.",
   quick_clip:
-    "Créer rapidement une structure de clip à partir d’une musique ou d’une idée.",
+    "Créer rapidement une structure de clip à partir dune musique ou dune idée.",
   training_video:
     "Transformer un cours ou une formation en plan vidéo pédagogique.",
   animated_flyer:
@@ -62,7 +67,8 @@ export const CREDIT_TOOL_DESCRIPTIONS: Record<CreditTool, string> = {
 export const CREDIT_TOOLS: CreditTool[] = [
   "quick_clip",
   "clip_lyrics",
-  "storyboard",`n  "storyboard_complete",
+  "storyboard",
+  "storyboard_complete",
   "script",
   "prompts",
   "subtitles",
@@ -77,4 +83,3 @@ export const CREDIT_TOOLS: CreditTool[] = [
 export function getActionCreditCost(action: string) {
   return CREDIT_COSTS[action as CreditTool] ?? 1;
 }
-

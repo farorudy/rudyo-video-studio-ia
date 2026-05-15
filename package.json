@@ -13,6 +13,7 @@
     "montage:smart": "node scripts/montage-smart.js"
   },
   "dependencies": {
+    "@mistralai/mistralai": "^2.2.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@prisma/client": "^5.17.0",
     "@stripe/stripe-js": "^9.4.0",

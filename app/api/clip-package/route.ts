@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import {
   callRemoteChatCompletion,
   isAiProvider,
@@ -150,13 +150,13 @@ function buildClipPromptDrafts(body: ClipPackageRequest) {
       pickLine(section, "Description visuelle") ||
       section.replace(/\s+/g, " ").slice(0, 220);
     const action =
-      pickLine(section, "Action") || "Action à interpréter depuis le plan";
+      pickLine(section, "Action") || "Action Ã  interprÃ©ter depuis le plan";
     const emotion =
-      pickLine(section, "Émotion recherchée") || "émotion cinématique";
+      pickLine(section, "Ã‰motion recherchÃ©e") || "Ã©motion cinÃ©matique";
     const decor =
-      pickLine(section, "Décor") || "set inspired by the storyboard";
+      pickLine(section, "DÃ©cor") || "set inspired by the storyboard";
     const camera =
-      pickLine(section, "Mouvement caméra") || "smooth cinematic movement";
+      pickLine(section, "Mouvement camÃ©ra") || "smooth cinematic movement";
     const promptImage =
       pickLine(section, "Suggestion de prompt image IA") ||
       `cinematic keyframe, ${style}, ${format}, ${description}`;
@@ -227,15 +227,15 @@ async function enhanceClipPromptsWithOllama(
   const format = body.format?.trim() || "16:9";
   const style = body.style?.trim() || "cinematic";
   const title = body.titre?.trim() || "Projet sans titre";
-  const prompt = `Tu es un prompt designer vidéo. Réponds uniquement en JSON valide sous forme de tableau.
+  const prompt = `Tu es un prompt designer vidÃ©o. RÃ©ponds uniquement en JSON valide sous forme de tableau.
 
 Projet : ${title}
 Format : ${format}
 Style : ${style}
 
-Pour chaque clip ci-dessous, rédige :
+Pour chaque clip ci-dessous, rÃ©dige :
 - promptImage : un prompt image propre pour un visuel de test Pollinations
-- promptVideo : un prompt vidéo propre pour une future génération premium
+- promptVideo : un prompt vidÃ©o propre pour une future gÃ©nÃ©ration premium
 
 Clips source :
 ${JSON.stringify(
@@ -271,7 +271,7 @@ Format attendu :
   const rawText = payload.response?.trim();
 
   if (!rawText) {
-    throw new Error("Réponse Ollama vide.");
+    throw new Error("RÃ©ponse Ollama vide.");
   }
 
   const parsed = JSON.parse(extractJsonPayload(rawText)) as Array<{
@@ -302,21 +302,21 @@ Format attendu :
 async function enhanceClipPromptsWithRemoteProvider(
   body: ClipPackageRequest,
   drafts: ClipPromptDraft[],
-  provider: "openai" | "blackbox",
+  provider: "openai" | "mistral" | "blackbox",
 ) {
   const settings = resolveRemoteAiSettings(provider, body.model);
   const format = body.format?.trim() || "16:9";
   const style = body.style?.trim() || "cinematic";
   const title = body.titre?.trim() || "Projet sans titre";
-  const prompt = `Tu es un prompt designer vidéo. Réponds uniquement en JSON valide sous forme de tableau.
+  const prompt = `Tu es un prompt designer vidÃ©o. RÃ©ponds uniquement en JSON valide sous forme de tableau.
 
 Projet : ${title}
 Format : ${format}
 Style : ${style}
 
-Pour chaque clip ci-dessous, rédige :
+Pour chaque clip ci-dessous, rÃ©dige :
 - promptImage : un prompt image propre pour un visuel de test Pollinations
-- promptVideo : un prompt vidéo propre pour une future génération premium
+- promptVideo : un prompt vidÃ©o propre pour une future gÃ©nÃ©ration premium
 
 Clips source :
 ${JSON.stringify(
@@ -349,7 +349,7 @@ Format attendu :
       {
         role: "system",
         content:
-          "Tu es un prompt designer vidéo. Réponds uniquement en JSON valide sous forme de tableau.",
+          "Tu es un prompt designer vidÃ©o. RÃ©ponds uniquement en JSON valide sous forme de tableau.",
       },
       { role: "user", content: prompt },
     ],
@@ -385,12 +385,12 @@ function buildTextExport(body: ClipPackageRequest, clips: ClipPrompt[]) {
   const header = [
     `Titre : ${body.titre || "Projet sans titre"}`,
     `Format : ${body.format || "16:9"}`,
-    `Style : ${body.style || "Cinématique"}`,
-    `Durée : ${body.duree || "Non précisée"}`,
+    `Style : ${body.style || "CinÃ©matique"}`,
+    `DurÃ©e : ${body.duree || "Non prÃ©cisÃ©e"}`,
     "",
     "Etapes :",
-    "1. Générez une vidéo par clip avec le prompt Video IA.",
-    "2. Placez les fichiers mp4 générés dans media/plans.",
+    "1. GÃ©nÃ©rez une vidÃ©o par clip avec le prompt Video IA.",
+    "2. Placez les fichiers mp4 gÃ©nÃ©rÃ©s dans media/plans.",
     "3. Placez la musique finale dans media/audio/musique.mp3.",
     "4. Lancez npm run montage pour assembler le clip final.",
     "",
@@ -399,7 +399,7 @@ function buildTextExport(body: ClipPackageRequest, clips: ClipPrompt[]) {
 
   const content = clips.flatMap((clip) => [
     `Clip ${clip.id} - ${clip.nom}`,
-    `Durée : ${clip.duree}`,
+    `DurÃ©e : ${clip.duree}`,
     `Description : ${clip.description}`,
     `Prompt Image IA : ${clip.promptImage}`,
     `Prompt Video IA : ${clip.promptVideo}`,
@@ -420,7 +420,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          error: "Le storyboard est obligatoire pour préparer les clips.",
+          error: "Le storyboard est obligatoire pour prÃ©parer les clips.",
         },
         { status: 400 },
       );
@@ -507,9 +507,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         success: false,
-        error: "Erreur lors de la préparation des clips.",
+        error: "Erreur lors de la prÃ©paration des clips.",
       },
       { status: 500 },
     );
   }
 }
+

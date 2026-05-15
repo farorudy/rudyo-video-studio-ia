@@ -352,7 +352,7 @@ export async function POST(req: NextRequest) {
         estimatedInputTokens: undefined,
         estimatedOutputTokens: undefined,
         estimatedCost: undefined,
-        creditsCharged: transaction.creditsAmount,
+        creditsCharged: transaction.amount,
       });
 
       return NextResponse.json({

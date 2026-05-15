@@ -14,16 +14,24 @@ export const ACTION_QUALITY_SUGGESTION: Record<CreditAction, AiQuality> = {
   other: "balanced",
 };
 
-export const ACTION_LABELS: Record<CreditAction, string> = {
-  storyboard_simple: "Storyboard simple",
-  storyboard_complete: "Storyboard complet",
-  prompts_video: "Prompts vidéo",
-  script_voiceover: "Script / voix off",
-  subtitles: "Sous-titres",
-  export_pdf: "Export PDF",
-  export_txt: "Export TXT",
-  clip_pack: "Pack de clips",
-  other: "Autre",
+import { CreditAction } from "@/lib/credit-costs";
+
+export type AiQuality = "economy" | "balanced" | "premium";
+
+export const ACTION_QUALITY_SUGGESTION: Record<CreditAction, AiQuality> = {
+  storyboard: "economy",
+  storyboard_complete: "balanced",
+  script: "balanced",
+  prompts: "economy",
+  subtitles: "economy",
+  audio_analysis: "economy",
+  clip_lyrics: "balanced",
+  quick_clip: "economy",
+  training_video: "balanced",
+  animated_flyer: "economy",
+  promo_video: "balanced",
+  clip_package: "balanced",
+  project: "balanced",
 };
 
 export const PROVIDER_MODE_LABEL: Record<AiQuality, string> = {

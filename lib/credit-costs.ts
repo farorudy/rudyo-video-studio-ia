@@ -9,9 +9,12 @@
   training_video: 5,
   animated_flyer: 5,
   promo_video: 5,
+  clip_package: 20,
+  project: 1,
 } as const;
 
 export type CreditTool = keyof typeof CREDIT_COSTS;
+export type CreditAction = CreditTool;
 
 export const CREDIT_TOOL_LABELS: Record<CreditTool, string> = {
   storyboard: "Storyboard vidéo",
@@ -24,7 +27,11 @@ export const CREDIT_TOOL_LABELS: Record<CreditTool, string> = {
   training_video: "Vidéo formation",
   animated_flyer: "Flyer animé",
   promo_video: "Vidéo promotionnelle",
+  clip_package: "Pack clip",
+  project: "Projet",
 };
+
+export const PLAN_LABELS = CREDIT_TOOL_LABELS;
 
 export const CREDIT_TOOL_DESCRIPTIONS: Record<CreditTool, string> = {
   storyboard:
@@ -47,6 +54,10 @@ export const CREDIT_TOOL_DESCRIPTIONS: Record<CreditTool, string> = {
     "Transformer une affiche en vidéo courte pour WhatsApp, Instagram ou TikTok.",
   promo_video:
     "Préparer une vidéo pour vendre une formation, un service ou un événement.",
+  clip_package:
+    "Préparer un pack complet de clip vidéo avec storyboard, prompts et structure.",
+  project:
+    "Créer ou organiser un projet vidéo.",
 };
 
 export const CREDIT_TOOLS: CreditTool[] = [
@@ -60,4 +71,10 @@ export const CREDIT_TOOLS: CreditTool[] = [
   "training_video",
   "animated_flyer",
   "promo_video",
+  "clip_package",
+  "project",
 ];
+
+export function getActionCreditCost(action: string) {
+  return CREDIT_COSTS[action as CreditTool] ?? 1;
+}

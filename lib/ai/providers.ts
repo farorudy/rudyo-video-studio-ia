@@ -1,59 +1,45 @@
-﻿import OpenAI from "openai";
-import { Mistral } from "@mistralai/mistralai";
+﻿import {
+  AiProvider,
+  AiProviderName,
+  generateWithMistral,
+  generateWithOpenAI,
+  isAiProvider,
+  resolveDefaultAiProvider,
+  resolveModelForProvider,
+} from "@/lib/ai-provider";
 
-export async function generateWithOpenAI(prompt: string) {
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error("OPENAI_API_KEY manquante.");
-  }
+export type { AiProvider, AiProviderName };
 
-  const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-  });
+export {
+  generateWithMistral,
+  generateWithOpenAI,
+  isAiProvider,
+  resolveDefaultAiProvider,
+  resolveModelForProvider,
+};
 
-  const response = await openai.responses.create({
-    model: process.env.OPENAI_MODEL || "gpt-4o-mini",
-    input: prompt,
-  });
-
-  return response.output_text;
-}
-
-export async function generateWithMistral(prompt: string) {
-  if (!process.env.MISTRAL_API_KEY) {
-    throw new Error("MISTRAL_API_KEY manquante.");
-  }
-
-  const mistral = new Mistral({
-    apiKey: process.env.MISTRAL_API_KEY,
-  });
-
-  const response = await mistral.chat.complete({
-    model: process.env.MISTRAL_MODEL || "mistral-small-latest",
-    messages: [
-      {
-        role: "user",
-        content: prompt,
-      },
-    ],
-  });
-
-  const content = response.choices?.[0]?.message?.content;
-
-  if (Array.isArray(content)) {
-    return content.map((part: any) => part.text ?? "").join("\n");
-  }
-
-  return content ?? "";
-}
-
-export async function generateAI(prompt: string) {
-  const provider = process.env.AI_PROVIDER || "openai";
-
+export function isProviderConfigured(provider: AiProviderName) {
   if (provider === "mistral") {
-    const result = await generateWithMistral(prompt);
-    return { provider, result };
+    return Boolean(process.env.MISTRAL_API_KEY);
   }
 
-  const result = await generateWithOpenAI(prompt);
-  return { provider, result };
+  if (provider === "openai") {
+    return Boolean(process.env.OPENAI_API_KEY);
+  }
+
+  if (provider === "ollama") {
+    return true;
+  }
+
+  return false;
+}
+
+export function resolveAiProviderSettings(provider?: AiProviderName) {
+  const selectedProvider = provider || resolveDefaultAiProvider();
+
+  return {
+    provider: selectedProvider,
+    model: resolveModelForProvider(selectedProvider),
+    configured: isProviderConfigured(selectedProvider),
+  };
 }

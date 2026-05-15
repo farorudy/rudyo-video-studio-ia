@@ -25,7 +25,16 @@ export function resolveDefaultAiProvider(): AiProvider {
   return "openai";
 }
 
-export function resolveModelForProvider(provider: AiProvider) {
+export function resolveModelForProvider(
+  provider: AiProvider,
+  requestedModel?: string | null
+) {
+  const cleanRequestedModel = requestedModel?.trim();
+
+  if (cleanRequestedModel) {
+    return cleanRequestedModel;
+  }
+
   if (provider === "mistral") {
     return process.env.MISTRAL_MODEL || "mistral-small-latest";
   }
@@ -118,7 +127,7 @@ export async function callRemoteChatCompletion(options: any) {
     ? options.provider
     : resolveDefaultAiProvider();
 
-  const model = options?.model || resolveModelForProvider(provider);
+  const model = resolveModelForProvider(provider, options?.model);
 
   const messages = Array.isArray(options?.messages)
     ? options.messages
@@ -132,11 +141,13 @@ export async function callRemoteChatCompletion(options: any) {
   const prompt = messages
     .map((message: any) => {
       if (typeof message?.content === "string") return message.content;
+
       if (Array.isArray(message?.content)) {
         return message.content
           .map((part: any) => part?.text ?? "")
           .join("\n");
       }
+
       return "";
     })
     .join("\n\n");
@@ -156,6 +167,10 @@ export async function callRemoteChatCompletion(options: any) {
     return Array.isArray(content)
       ? content.map((part: any) => part.text ?? "").join("\n")
       : content ?? "";
+  }
+
+  if (provider === "ollama") {
+    return prompt;
   }
 
   const openai = new OpenAI({

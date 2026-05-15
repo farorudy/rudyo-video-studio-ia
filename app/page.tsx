@@ -19,8 +19,8 @@ const offers = [
     title: "Commander une vidéo",
     description:
       "Confiez votre projet à Farozik : flyer animé, clip lyrics, vidéo promotionnelle ou capsule formation.",
-    href: "/offres",
-    button: "Voir les offres",
+    href: "/order-video",
+    button: "Commander une vidéo",
   },
 ];
 
@@ -82,10 +82,10 @@ export default function HomePage() {
             </Link>
 
             <Link
-              href="/offres"
+              href="/pricing"
               className="rounded-2xl border border-slate-700 bg-slate-900 px-6 py-4 font-bold text-white hover:border-cyan-400"
             >
-              Voir les offres
+              Voir les tarifs
             </Link>
           </div>
         </div>
@@ -127,10 +127,10 @@ export default function HomePage() {
             </div>
 
             <Link
-              href="/offres"
+              href="/pricing"
               className="rounded-2xl bg-cyan-400 px-6 py-4 font-black text-slate-950 hover:bg-cyan-300"
             >
-              Voir toutes les offres
+              Voir tous les tarifs
             </Link>
           </div>
 

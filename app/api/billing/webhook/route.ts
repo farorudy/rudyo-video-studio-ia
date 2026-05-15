@@ -128,11 +128,11 @@ export async function POST(req: NextRequest) {
           );
           const monthlyLimit =
             plan === "STARTER"
-              ? 20
+              ? 150
               : plan === "CREATOR"
-                ? 80
+                ? 500
                 : plan === "STUDIO"
-                  ? 200
+                  ? 1500
                   : 0;
 
           await prisma.$transaction([
@@ -206,11 +206,11 @@ export async function POST(req: NextRequest) {
             plan: plan as any,
             monthlyLimit:
               plan === "STARTER"
-                ? 20
+                ? 150
                 : plan === "CREATOR"
-                  ? 80
+                  ? 500
                   : plan === "STUDIO"
-                    ? 200
+                    ? 1500
                     : 0,
             billingStatus: resolveBillingStatus(subscription.status),
           },

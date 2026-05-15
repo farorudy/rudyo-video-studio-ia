@@ -3,103 +3,78 @@
 import Link from "next/link";
 import { useState } from "react";
 
+const links = [
+  { href: "/", label: "Accueil" },
+  { href: "/pricing", label: "Tarifs" },
+  { href: "/studio", label: "Studio" },
+  { href: "/dashboard", label: "Dashboard" },
+  { href: "/projects", label: "Projets" },
+  { href: "/order-video", label: "Commande video" },
+];
+
 export default function Navigation() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 border-b border-slate-800 bg-slate-950/80 backdrop-blur-md">
+    <nav className="fixed left-0 right-0 top-0 z-50 border-b border-slate-800 bg-slate-950/80 backdrop-blur-md">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
-          {/* Logo */}
+        <div className="flex h-16 items-center justify-between">
           <Link
             href="/"
-            className="font-bold text-lg text-cyan-400 hover:text-cyan-300 transition"
+            className="text-lg font-bold text-cyan-400 transition hover:text-cyan-300"
           >
-            🎬 Farozik
+            Farozik Rudyo
           </Link>
 
-          {/* Desktop Menu */}
-          <div className="hidden md:flex items-center gap-8">
-            <Link
-              href="/"
-              className="text-slate-300 hover:text-white transition text-sm"
-            >
-              Accueil
-            </Link>
-            <Link
-              href="/offres"
-              className="text-slate-300 hover:text-white transition text-sm"
-            >
-              Offres & tarifs
-            </Link>
-            <Link
-              href="/credits"
-              className="text-slate-300 hover:text-white transition text-sm"
-            >
-              Crédits
-            </Link>
+          <div className="hidden items-center gap-6 md:flex">
+            {links.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                className="text-sm text-slate-300 transition hover:text-white"
+              >
+                {link.label}
+              </Link>
+            ))}
             <Link
               href="/login"
-              className="text-slate-300 hover:text-white transition text-sm"
+              className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-100 transition hover:border-cyan-400"
             >
               Connexion
             </Link>
-            <Link
-              href="/studio"
-              className="text-slate-300 hover:text-white transition text-sm"
-            >
-              Studio
-            </Link>
-            <a
-              href="mailto:contact@cipfaro.com"
-              className="rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:shadow-lg hover:shadow-cyan-500/30"
-            >
-              Contact
-            </a>
           </div>
 
-          {/* Mobile Menu Button */}
           <button
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="md:hidden p-2 rounded-lg border border-slate-700 hover:bg-slate-900"
+            type="button"
+            onClick={() => setMobileMenuOpen((open) => !open)}
+            className="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:bg-slate-900 md:hidden"
+            aria-label="Ouvrir le menu"
           >
-            <span className="text-slate-300">☰</span>
+            Menu
           </button>
         </div>
 
-        {/* Mobile Menu */}
-        {mobileMenuOpen && (
-          <div className="md:hidden border-t border-slate-800 py-4 space-y-3">
+        {mobileMenuOpen ? (
+          <div className="grid gap-2 border-t border-slate-800 py-4 md:hidden">
+            {links.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                className="rounded-lg px-3 py-2 text-sm text-slate-300 transition hover:bg-slate-900 hover:text-white"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                {link.label}
+              </Link>
+            ))}
             <Link
-              href="/"
-              className="block text-slate-300 hover:text-white transition text-sm py-2"
+              href="/login"
+              className="rounded-lg bg-cyan-400 px-3 py-2 text-center text-sm font-black text-slate-950"
               onClick={() => setMobileMenuOpen(false)}
             >
-              Accueil
+              Connexion
             </Link>
-            <Link
-              href="/offres"
-              className="block text-slate-300 hover:text-white transition text-sm py-2"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              Offres & tarifs
-            </Link>
-            <Link
-              href="/studio"
-              className="block text-slate-300 hover:text-white transition text-sm py-2"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              Studio
-            </Link>
-            <a
-              href="mailto:contact@cipfaro.com"
-              className="block rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 px-4 py-2 text-sm font-semibold text-white text-center transition hover:shadow-lg hover:shadow-cyan-500/30"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              Contact
-            </a>
           </div>
-        )}
+        ) : null}
       </div>
     </nav>
   );

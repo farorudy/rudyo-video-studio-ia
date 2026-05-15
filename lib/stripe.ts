@@ -1,5 +1,5 @@
 import Stripe from "stripe";
-import { getActionCreditCost, PLAN_LABELS } from "@/lib/credit-costs";
+import { PLAN_LABELS } from "@/lib/credit-costs";
 
 export type CreditPackDefinition = {
   id: string;
@@ -19,62 +19,61 @@ export type SubscriptionPlanDefinition = {
 };
 
 const CREDIT_PACKS: Record<string, CreditPackDefinition> = {
-  rudyo_10: {
-    id: "rudyo_10",
-    name: "Pack Découverte",
-    credits: 10,
-    amount: 900,
-    description:
-      "10 Crédits Rudyo pour utiliser la plateforme Rudyo Video Studio IA.",
-  },
   rudyo_50: {
     id: "rudyo_50",
-    name: "Pack Créateur",
+    name: "Pack Decouverte",
     credits: 50,
-    amount: 3900,
+    amount: 900,
     description:
-      "50 Crédits Rudyo pour générer storyboards, prompts et exports.",
+      "50 credits Rudyo pour tester storyboards, scripts courts et prompts.",
   },
-  rudyo_150: {
-    id: "rudyo_150",
+  rudyo_200: {
+    id: "rudyo_200",
+    name: "Pack Createur",
+    credits: 200,
+    amount: 2900,
+    description: "200 credits Rudyo pour preparer plusieurs projets video.",
+  },
+  rudyo_700: {
+    id: "rudyo_700",
     name: "Pack Pro",
-    credits: 150,
-    amount: 9900,
-    description: "150 Crédits Rudyo pour usages IA avancés et exportations.",
+    credits: 700,
+    amount: 7900,
+    description: "700 credits Rudyo pour dossiers, exports et packs complets.",
   },
-  rudyo_500: {
-    id: "rudyo_500",
+  rudyo_2000: {
+    id: "rudyo_2000",
     name: "Pack Studio",
-    credits: 500,
-    amount: 24900,
-    description: "500 Crédits Rudyo pour production vidéo intensive.",
+    credits: 2000,
+    amount: 19900,
+    description: "2 000 credits Rudyo pour une production video intensive.",
   },
 };
 
 const SUBSCRIPTION_PLANS: Record<string, SubscriptionPlanDefinition> = {
   starter_monthly: {
     id: "starter_monthly",
-    name: "Starter",
+    name: "Createur Mensuel",
     price: 1900,
-    monthlyLimit: 20,
+    monthlyLimit: 150,
     description:
-      "20 générations IA / mois, storyboards simples, prompts vidéo, export PDF.",
+      "150 credits / mois pour createurs reguliers et artistes independants.",
   },
   createur_monthly: {
     id: "createur_monthly",
-    name: "Créateur",
+    name: "Pro Mensuel",
     price: 4900,
-    monthlyLimit: 80,
+    monthlyLimit: 500,
     description:
-      "80 générations IA / mois, storyboards complets, sous-titres, templates.",
+      "500 credits / mois pour entrepreneurs, formateurs et associations.",
   },
   studio_monthly: {
     id: "studio_monthly",
-    name: "Studio",
-    price: 9900,
-    monthlyLimit: 200,
+    name: "Studio Mensuel",
+    price: 12900,
+    monthlyLimit: 1500,
     description:
-      "200 générations IA / mois, exports avancés, support prioritaire.",
+      "1 500 credits / mois pour structures, agences et centres de formation.",
   },
 };
 
@@ -117,7 +116,7 @@ export function getStripeProductDescription(productId: string) {
   return (
     getCreditPack(productId)?.description ??
     getSubscriptionPlan(productId)?.description ??
-    "Crédits internes Rudyo."
+    "Credits internes Rudyo."
   );
 }
 

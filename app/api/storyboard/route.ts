@@ -338,8 +338,8 @@ export async function POST(req: NextRequest) {
           | undefined,
         preferredProvider: body.provider,
         modelOverride: body.model,
-        userPlan: user.plan,
-        allowPremiumAi: user.allowPremiumAi,
+        userPlan: (user as { plan?: string }).plan,
+        allowPremiumAi: (user as { allowPremiumAi?: boolean }).allowPremiumAi,
       });
 
       await confirmCreditUsage(transaction.id);

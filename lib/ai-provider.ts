@@ -1,4 +1,5 @@
-﻿import OpenAI from "openai";
+﻿@'
+import OpenAI from "openai";
 import { Mistral } from "@mistralai/mistralai";
 
 export type AiProvider = "openai" | "mistral" | "ollama";
@@ -46,12 +47,18 @@ export function resolveModelForProvider(
   return process.env.OLLAMA_MODEL || "llama3.1";
 }
 
-export function resolveRemoteAiSettings(provider?: AiProvider) {
-  const selectedProvider = provider || resolveDefaultAiProvider();
+export function resolveRemoteAiSettings(
+  provider?: AiProvider | "blackbox" | null,
+  requestedModel?: string | null
+) {
+  const selectedProvider: AiProvider =
+    provider === "blackbox"
+      ? "openai"
+      : provider || resolveDefaultAiProvider();
 
   return {
     provider: selectedProvider,
-    model: resolveModelForProvider(selectedProvider),
+    model: resolveModelForProvider(selectedProvider, requestedModel),
     configured:
       selectedProvider === "mistral"
         ? Boolean(process.env.MISTRAL_API_KEY)
@@ -116,6 +123,13 @@ export async function generateAI(prompt: string) {
     };
   }
 
+  if (provider === "ollama") {
+    return {
+      provider,
+      result: prompt,
+    };
+  }
+
   return {
     provider: "openai" as const,
     result: await generateWithOpenAI(prompt),
@@ -153,6 +167,10 @@ export async function callRemoteChatCompletion(options: any) {
     .join("\n\n");
 
   if (provider === "mistral") {
+    if (!process.env.MISTRAL_API_KEY) {
+      throw new Error("MISTRAL_API_KEY manquante.");
+    }
+
     const mistral = new Mistral({
       apiKey: process.env.MISTRAL_API_KEY,
     });
@@ -173,6 +191,10 @@ export async function callRemoteChatCompletion(options: any) {
     return prompt;
   }
 
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error("OPENAI_API_KEY manquante.");
+  }
+
   const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
   });
@@ -184,3 +206,4 @@ export async function callRemoteChatCompletion(options: any) {
 
   return response.output_text;
 }
+'@ | Set-Content -Encoding UTF8 lib\ai-provider.ts

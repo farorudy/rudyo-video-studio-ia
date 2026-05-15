@@ -7,6 +7,8 @@ export type CreditReservation = {
   action: string;
   amount: number;
   status: "reserved" | "confirmed" | "refunded";
+  description?: string;
+  metadata?: unknown;
 };
 
 function createReservationId() {
@@ -25,56 +27,89 @@ export async function getCreditBalance(_userId?: string) {
   return 18;
 }
 
-export async function reserveCredits(params: {
-  userId?: string;
-  action?: string;
-  amount?: number;
-  description?: string;
-  metadata?: unknown;
-}) {
-  const amount =
-    params.amount ?? getActionCreditCost(params.action || "project");
+export async function reserveCredits(...args: any[]) {
+  let userId = "demo-user";
+  let action = "project";
+  let amount: number | undefined;
+  let description: string | undefined;
+  let metadata: unknown;
 
-  const balance = await getCreditBalance(params.userId);
+  if (args.length === 1 && typeof args[0] === "object") {
+    userId = args[0]?.userId || "demo-user";
+    action = args[0]?.action || "project";
+    amount = args[0]?.amount;
+    description = args[0]?.description;
+    metadata = args[0]?.metadata;
+  } else {
+    userId = args[0] || "demo-user";
+    action = args[1] || "project";
+    amount = typeof args[2] === "number" ? args[2] : undefined;
+    description = typeof args[2] === "string" ? args[2] : undefined;
+    metadata = args[3];
+  }
 
-  if (balance < amount) {
+  const finalAmount = amount ?? getActionCreditCost(action);
+  const balance = await getCreditBalance(userId);
+
+  if (balance < finalAmount) {
     throw new Error("CREDITS_INSUFFICIENTS");
   }
 
   const reservation: CreditReservation = {
     id: createReservationId(),
-    userId: params.userId || "demo-user",
-    action: params.action || "project",
-    amount,
+    userId,
+    action,
+    amount: finalAmount,
     status: "reserved",
+    description,
+    metadata,
   };
 
   return reservation;
 }
 
-export async function confirmCreditUsage(reservationOrParams: any) {
+export async function confirmCreditUsage(...args: any[]) {
+  const reservation = args[0];
+
   return {
     success: true,
-    reservationId: reservationOrParams?.id ?? null,
-    amount: reservationOrParams?.amount ?? 0,
+    reservationId:
+      typeof reservation === "object" ? reservation?.id ?? null : reservation ?? null,
+    amount:
+      typeof reservation === "object" ? reservation?.amount ?? 0 : args[1] ?? 0,
     status: "confirmed",
   };
 }
 
-export async function refundCreditUsage(reservationOrParams: any) {
+export async function refundCreditUsage(...args: any[]) {
+  const reservation = args[0];
+
   return {
     success: true,
-    reservationId: reservationOrParams?.id ?? null,
-    amount: reservationOrParams?.amount ?? 0,
+    reservationId:
+      typeof reservation === "object" ? reservation?.id ?? null : reservation ?? null,
+    amount:
+      typeof reservation === "object" ? reservation?.amount ?? 0 : args[1] ?? 0,
     status: "refunded",
   };
 }
 
-export async function logAiUsage(params: any) {
+export async function logAiUsage(...args: any[]) {
+  if (args.length === 1 && typeof args[0] === "object") {
+    return {
+      success: true,
+      logged: true,
+      ...args[0],
+    };
+  }
+
   return {
     success: true,
     logged: true,
-    ...params,
+    userId: args[0],
+    action: args[1],
+    provider: args[2],
+    metadata: args[3],
   };
 }
 

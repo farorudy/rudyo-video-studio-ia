@@ -1,4 +1,3 @@
-﻿@'
 import OpenAI from "openai";
 import { Mistral } from "@mistralai/mistralai";
 

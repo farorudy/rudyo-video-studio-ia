@@ -1,6 +1,6 @@
 import { AiProviderName, isProviderConfigured } from "@/lib/ai/providers";
 import { CreditAction } from "@/lib/credit-costs";
-import { AiQuality, PROVIDER_MODE_LABEL } from "@/lib/ai/actions";
+import { AiQuality } from "@/lib/ai/actions";
 
 export type ProviderSelection = {
   provider: AiProviderName;
@@ -8,25 +8,35 @@ export type ProviderSelection = {
   modeLabel: string;
 };
 
-export type SupportedAiProvider = Exclude<AiProviderName, "mock">;
+export type SupportedAiProvider = Extract<AiProviderName, "ollama" | "openai">;
 
-const PREMIUM_PROVIDERS: SupportedAiProvider[] = ["openai", "claude"];
-const ECONOMY_PROVIDERS: SupportedAiProvider[] = ["gemini", "ollama"];
+const ECONOMY_PROVIDERS: SupportedAiProvider[] = ["ollama", "openai"];
+const PREMIUM_PROVIDERS: SupportedAiProvider[] = ["openai", "ollama"];
+
+function getModeLabel(quality: AiQuality) {
+  const labels: Record<AiQuality, string> = {
+    economy: "Mode économique",
+    balanced: "Mode équilibré",
+    premium: "Mode premium",
+  };
+
+  return labels[quality];
+}
+
+function isSupportedProvider(value: unknown): value is SupportedAiProvider {
+  return value === "ollama" || value === "openai";
+}
 
 function getFallbackProviders(provider: AiProviderName): SupportedAiProvider[] {
   if (provider === "openai") {
-    return ["claude", "gemini", "ollama"];
+    return ["ollama"];
   }
-  if (provider === "claude") {
-    return ["openai", "gemini", "ollama"];
-  }
-  if (provider === "gemini") {
-    return ["openai", "claude", "ollama"];
-  }
+
   if (provider === "ollama") {
-    return ["gemini", "openai", "claude"];
+    return ["openai"];
   }
-  return [];
+
+  return ["ollama", "openai"];
 }
 
 export function chooseProviderForAction(params: {
@@ -50,114 +60,109 @@ export function chooseProviderForAction(params: {
 
   if (forceMock) {
     return {
-      provider: "mock",
+      provider: "mock" as AiProviderName,
       reason: "Mode mock activé",
-      modeLabel: PROVIDER_MODE_LABEL[quality],
+      modeLabel: getModeLabel(quality),
     };
   }
 
   if (
     preferredProvider &&
-    isProviderConfigured(preferredProvider as AiProviderName)
+    isSupportedProvider(preferredProvider) &&
+    isProviderConfigured(preferredProvider)
   ) {
     return {
-      provider: preferredProvider as AiProviderName,
+      provider: preferredProvider,
       reason: "Préférence utilisateur disponible",
-      modeLabel: PROVIDER_MODE_LABEL[quality],
+      modeLabel: getModeLabel(quality),
     };
   }
 
   const premiumAllowed = allowPremiumAi || userPlan === "STUDIO";
 
-  if (!isProduction) {
+  if (!isProduction && isProviderConfigured("ollama" as AiProviderName)) {
     return {
-      provider: "ollama",
+      provider: "ollama" as AiProviderName,
       reason: "Environnement de développement, utilisation d'Ollama local",
-      modeLabel: PROVIDER_MODE_LABEL[quality],
+      modeLabel: getModeLabel(quality),
     };
   }
 
   if (quality === "premium" && premiumAllowed) {
-    if (isProviderConfigured("openai")) {
+    const premiumProvider = PREMIUM_PROVIDERS.find((provider) =>
+      isProviderConfigured(provider),
+    );
+
+    if (premiumProvider) {
       return {
-        provider: "openai",
-        reason: "Qualité premium disponible via OpenAI",
-        modeLabel: PROVIDER_MODE_LABEL[quality],
-      };
-    }
-    if (isProviderConfigured("claude")) {
-      return {
-        provider: "claude",
-        reason: "Qualité premium disponible via Claude",
-        modeLabel: PROVIDER_MODE_LABEL[quality],
+        provider: premiumProvider,
+        reason: "Qualité premium disponible",
+        modeLabel: getModeLabel(quality),
       };
     }
   }
 
   if (action === "storyboard_complete") {
-    if (isProviderConfigured("gemini")) {
+    if (isProviderConfigured("openai" as AiProviderName)) {
       return {
-        provider: "gemini",
-        reason: "Storyboard complet ciblé sur un bon rapport qualité / coût",
-        modeLabel: PROVIDER_MODE_LABEL[quality],
+        provider: "openai" as AiProviderName,
+        reason: "Storyboard complet via OpenAI",
+        modeLabel: getModeLabel(quality),
       };
     }
   }
 
-  if (action === "storyboard_simple") {
-    if (isProviderConfigured("gemini")) {
+  if (action === "storyboard") {
+    if (isProviderConfigured("ollama" as AiProviderName)) {
       return {
-        provider: "gemini",
-        reason: "Storyboard simple, priorité coût bas",
-        modeLabel: PROVIDER_MODE_LABEL[quality],
+        provider: "ollama" as AiProviderName,
+        reason: "Storyboard simple via Ollama",
+        modeLabel: getModeLabel(quality),
       };
     }
   }
 
-  if (action === "prompts_video" || action === "subtitles") {
-    if (isProviderConfigured("gemini")) {
+  if (action === "prompts" || action === "subtitles") {
+    if (isProviderConfigured("ollama" as AiProviderName)) {
       return {
-        provider: "gemini",
-        reason: "Prompt ou sous-titres optimisés pour coût et rapidité",
-        modeLabel: PROVIDER_MODE_LABEL[quality],
+        provider: "ollama" as AiProviderName,
+        reason: "Action légère via Ollama",
+        modeLabel: getModeLabel(quality),
       };
     }
   }
 
-  if (action === "script_voiceover") {
-    if (isProviderConfigured("claude")) {
+  if (action === "script") {
+    if (isProviderConfigured("openai" as AiProviderName)) {
       return {
-        provider: "claude",
-        reason: "Voix off / script avec Claude pour meilleure fluidité",
-        modeLabel: PROVIDER_MODE_LABEL[quality],
-      };
-    }
-    if (isProviderConfigured("openai")) {
-      return {
-        provider: "openai",
-        reason: "Voix off / script via OpenAI",
-        modeLabel: PROVIDER_MODE_LABEL[quality],
+        provider: "openai" as AiProviderName,
+        reason: "Script généré via OpenAI",
+        modeLabel: getModeLabel(quality),
       };
     }
   }
 
-  const fallback = ECONOMY_PROVIDERS.find(isProviderConfigured);
+  const fallback = ECONOMY_PROVIDERS.find((provider) =>
+    isProviderConfigured(provider),
+  );
+
   if (fallback) {
     return {
       provider: fallback,
-      reason:
-        "Aucun choix spécifique disponible, utilisation d'un provider économique",
-      modeLabel: PROVIDER_MODE_LABEL[quality],
+      reason: "Provider disponible utilisé en fallback",
+      modeLabel: getModeLabel(quality),
     };
   }
 
   return {
-    provider: "mock",
+    provider: "mock" as AiProviderName,
     reason: "Aucun provider configuré, utilisation du mock local",
-    modeLabel: PROVIDER_MODE_LABEL[quality],
+    modeLabel: getModeLabel(quality),
   };
 }
 
 export function getProviderFallbackOrder(provider: AiProviderName) {
-  return getFallbackProviders(provider).filter(isProviderConfigured);
+  return getFallbackProviders(provider).filter((fallbackProvider) =>
+    isProviderConfigured(fallbackProvider),
+  );
 }

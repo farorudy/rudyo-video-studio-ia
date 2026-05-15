@@ -205,4 +205,3 @@ export async function callRemoteChatCompletion(options: any) {
 
   return response.output_text;
 }
-'@ | Set-Content -Encoding UTF8 lib\ai-provider.ts

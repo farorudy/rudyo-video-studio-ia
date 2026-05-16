@@ -371,7 +371,9 @@ export async function POST(req: NextRequest) {
 
     if (
       error instanceof Error &&
-      error.message.includes("Crédits insuffisants")
+      (error.message === "CREDITS_INSUFFICIENTS" ||
+        error.message.includes("Crédits insuffisants") ||
+        error.message.includes("Credits insuffisants"))
     ) {
       return NextResponse.json(
         {

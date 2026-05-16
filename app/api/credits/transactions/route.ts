@@ -11,6 +11,10 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  if (user.localSession) {
+    return NextResponse.json({ transactions: [] });
+  }
+
   const transactions = await prisma.creditTransaction.findMany({
     where: { userId: user.id },
     orderBy: { createdAt: "desc" },

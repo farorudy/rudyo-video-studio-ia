@@ -3,6 +3,18 @@
 import { useEffect, useState } from "react";
 
 type BalanceResponse = {
+  success?: boolean;
+  authenticated?: boolean;
+  user?: {
+    email: string;
+    name: string | null;
+    plan: string;
+  };
+  credits?: {
+    balance: number;
+    total: number;
+    used: number;
+  };
   creditsTotal: number;
   creditsUsed: number;
   creditsRemaining: number;
@@ -10,6 +22,7 @@ type BalanceResponse = {
   monthlyLimit: number;
   monthlyUsed: number;
   billingStatus: string;
+  error?: string;
 };
 
 export default function CreditDashboard() {
@@ -20,14 +33,17 @@ export default function CreditDashboard() {
   useEffect(() => {
     async function loadBalance() {
       try {
-        const res = await fetch("/api/credits/balance", { cache: "no-store" });
-        const json = await res.json();
-        if (!res.ok) {
-          setError(json.error || "Impossible de charger le solde.");
+        const res = await fetch("/api/credits/balance", {
+          cache: "no-store",
+          credentials: "same-origin",
+        });
+        const json = (await res.json()) as BalanceResponse;
+        if (!res.ok || json.success === false) {
+          setError(json.error || "Impossible de charger le solde Rudyo.");
           return;
         }
         setBalance(json);
-      } catch (err) {
+      } catch {
         setError("Impossible de charger le solde de crédits.");
       } finally {
         setLoading(false);
@@ -40,7 +56,7 @@ export default function CreditDashboard() {
   if (loading) {
     return (
       <div className="rounded-3xl border border-slate-800 bg-slate-950/70 p-8 text-center text-slate-400">
-        Chargement du tableau de bord crédits…
+        Chargement du tableau de bord crédits...
       </div>
     );
   }
@@ -49,16 +65,18 @@ export default function CreditDashboard() {
     return (
       <div className="rounded-3xl border border-rose-500/40 bg-rose-950/30 p-8 text-center text-rose-200">
         <p>{error}</p>
-        <p className="mt-2 text-sm text-slate-400">
-          Connectez-vous ou créez un compte pour consulter vos crédits Rudyo.
-        </p>
       </div>
     );
   }
 
+  const userName = balance?.user?.name || "Utilisateur Rudyo";
+  const userEmail = balance?.user?.email || "";
+  const creditsRemaining =
+    balance?.credits?.balance ?? balance?.creditsRemaining ?? 0;
+
   return (
     <div className="rounded-3xl border border-slate-800 bg-slate-950/70 p-8">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-sm uppercase tracking-[0.3em] text-slate-400">
             Crédit interne Rudyo
@@ -66,19 +84,26 @@ export default function CreditDashboard() {
           <h2 className="text-3xl font-bold text-white">
             Mon solde de crédits
           </h2>
+          <div className="mt-4 grid gap-1 text-sm text-slate-300">
+            <p>{userName}</p>
+            {userEmail ? <p>{userEmail}</p> : null}
+            <p className="font-semibold text-emerald-300">
+              Solde Rudyo : {creditsRemaining} crédits
+            </p>
+          </div>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <a
             href="/pricing"
-            className="rounded-2xl bg-emerald-500 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 text-center"
+            className="rounded-2xl bg-emerald-500 px-5 py-3 text-center text-sm font-semibold text-slate-950 transition hover:bg-emerald-400"
           >
             Acheter des crédits
           </a>
           <a
             href="/credits/history"
-            className="rounded-2xl border border-slate-700 bg-slate-900 px-5 py-3 text-sm font-semibold text-slate-100 transition hover:bg-slate-800 text-center"
+            className="rounded-2xl border border-slate-700 bg-slate-900 px-5 py-3 text-center text-sm font-semibold text-slate-100 transition hover:bg-slate-800"
           >
-            Voir l’historique
+            Voir l'historique
           </a>
         </div>
       </div>
@@ -89,7 +114,7 @@ export default function CreditDashboard() {
             Crédits restants
           </p>
           <p className="mt-4 text-4xl font-bold text-emerald-300">
-            {balance!.creditsRemaining}
+            {creditsRemaining}
           </p>
         </div>
         <div className="rounded-3xl border border-slate-800 bg-slate-900/80 p-6">
@@ -97,7 +122,7 @@ export default function CreditDashboard() {
             Crédits utilisés
           </p>
           <p className="mt-4 text-4xl font-bold text-slate-200">
-            {balance!.creditsUsed}
+            {balance!.credits?.used ?? balance!.creditsUsed}
           </p>
         </div>
         <div className="rounded-3xl border border-slate-800 bg-slate-900/80 p-6">

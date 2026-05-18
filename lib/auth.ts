@@ -82,6 +82,15 @@ export function isValidEmail(email: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
+export function sanitizeUserName(name?: string) {
+  const cleaned = name
+    ?.replace(/[\u0000-\u001F\u007F<>]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return cleaned ? cleaned.slice(0, 80) : "";
+}
+
 export function validateAuthSecret() {
   const secret = process.env.AUTH_COOKIE_SECRET?.trim();
   if (!secret || EXAMPLE_AUTH_SECRETS.has(secret) || secret.length < 32) {
@@ -228,11 +237,12 @@ export function createLocalSessionUser(
   name?: string,
 ): SessionUser {
   const normalizedEmail = normalizeEmail(email);
+  const cleanedName = sanitizeUserName(name);
   const initialCredits = getInitialCredits();
   return {
     id: `local:${normalizedEmail}`,
     email: normalizedEmail,
-    name: name?.trim() || null,
+    name: cleanedName || null,
     plan: "FREE",
     creditsTotal: initialCredits,
     creditsUsed: 0,
@@ -250,26 +260,18 @@ export function createLocalSessionUser(
 
 export async function getOrCreateUserByEmail(email: string, name?: string) {
   const normalizedEmail = normalizeEmail(email);
+  const cleanedName = sanitizeUserName(name);
   const initialCredits = getInitialCredits();
   const existing = await prisma.user.findUnique({
     where: { email: normalizedEmail },
   });
 
   if (existing) {
-    const shouldInitializeCredits =
-      existing.creditsTotal === 0 &&
-      existing.creditsUsed === 0 &&
-      existing.creditsRemaining === 0 &&
-      initialCredits > 0;
-
-    if ((name && !existing.name) || shouldInitializeCredits) {
+    if (cleanedName && cleanedName !== existing.name) {
       return prisma.user.update({
         where: { id: existing.id },
         data: {
-          name: name && !existing.name ? name.trim() : undefined,
-          creditsTotal: shouldInitializeCredits ? initialCredits : undefined,
-          creditsRemaining: shouldInitializeCredits ? initialCredits : undefined,
-          monthlyLimit: shouldInitializeCredits ? initialCredits : undefined,
+          name: cleanedName,
         },
       });
     }
@@ -280,7 +282,7 @@ export async function getOrCreateUserByEmail(email: string, name?: string) {
   return prisma.user.create({
     data: {
       email: normalizedEmail,
-      name: name?.trim() || undefined,
+      name: cleanedName || undefined,
       plan: "FREE",
       billingStatus: "ACTIVE",
       creditsTotal: initialCredits,

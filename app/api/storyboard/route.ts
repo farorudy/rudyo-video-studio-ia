@@ -1,413 +1,393 @@
+import OpenAI from "openai";
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { CreditAction } from "@/lib/credit-costs";
+import { getCurrentUser } from "@/lib/auth";
 import {
-  logAiUsage,
-  reserveCredits,
   confirmCreditUsage,
   refundCreditUsage,
-  getCurrentUserFromRequest,
+  reserveCredits,
 } from "@/lib/credit-utils";
-import { generateWithBestProvider } from "@/lib/ai/generate";
+import type { StoryboardPlan, StoryboardResult } from "@/lib/types";
 
-const OLLAMA_BASE_URL =
-  process.env.OLLAMA_BASE_URL?.replace(/\/$/, "") || "http://127.0.0.1:11434";
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 type StoryboardRequestBody = {
-  prompt?: string;
   titre?: string;
   typeVideo?: string;
   duree?: string;
   format?: string;
   style?: string;
+  langue?: string;
+  publicCible?: string;
+  nombrePlans?: string;
   description?: string;
-  nombrePlans?: string | number;
-  provider?: string;
-  model?: string;
 };
 
-function parseDurationSeconds(value: string | undefined) {
-  if (!value) {
-    return null;
-  }
-
-  const minutesMatch = value.match(/(\d+)\s*minute/i);
-
-  if (minutesMatch) {
-    return Number.parseInt(minutesMatch[1], 10) * 60;
-  }
-
-  const secondsMatch = value.match(/(\d+)\s*seconde/i);
-
-  if (secondsMatch) {
-    return Number.parseInt(secondsMatch[1], 10);
-  }
-
-  return null;
+function sanitize(value: unknown, fallback = "") {
+  return typeof value === "string" && value.trim() ? value.trim() : fallback;
 }
 
-function getMockPlanCount(body: StoryboardRequestBody) {
-  const requestedPlans = Number.parseInt(String(body.nombrePlans ?? ""), 10);
-  const durationSeconds = parseDurationSeconds(body.duree);
-
-  if (Number.isFinite(requestedPlans) && requestedPlans > 0) {
-    return Math.min(12, Math.max(5, requestedPlans));
-  }
-
-  if (!durationSeconds) {
+function getPlanCount(value: unknown) {
+  const parsed = Number.parseInt(String(value ?? ""), 10);
+  if (!Number.isFinite(parsed)) {
     return 5;
   }
 
-  if (durationSeconds >= 300) {
-    return 12;
-  }
-
-  if (durationSeconds >= 240) {
-    return 10;
-  }
-
-  if (durationSeconds >= 120) {
-    return 8;
-  }
-
-  return 5;
+  return Math.min(12, Math.max(3, parsed));
 }
 
-function getMockPlanTemplate(index: number) {
-  const templates = [
-    {
-      description:
-        "plan d'ouverture atmosphérique qui installe le lieu, le ton et le personnage principal.",
-      type: "plan large",
-      camera: "travelling avant lent",
-      decor: "environnement principal du récit",
-      light: "lumière naturelle douce",
-      action: "le personnage entre dans le cadre et observe l'horizon",
-      emotion: "attente",
-      image:
-        "cinematic opening shot, tropical environment, soft natural light, emotional atmosphere",
-    },
-    {
-      description:
-        "alternance de détails symboliques liés au thème de la vidéo.",
-      type: "gros plan",
-      camera: "caméra portée stabilisée",
-      decor: "éléments de décor texturés et expressifs",
-      light: "contrastes fins avec reflets subtils",
-      action: "gestes lents et contemplatifs",
-      emotion: "introspection",
-      image:
-        "close-up symbolic details, textured set, cinematic contrast, reflective mood",
-    },
-    {
-      description:
-        "montée d'intensité avec mouvement plus ample et décor plus vivant.",
-      type: "plan moyen",
-      camera: "panoramique fluide",
-      decor: "espace ouvert avec profondeur marquée",
-      light: "lumière dorée de fin de journée",
-      action: "le personnage avance avec détermination",
-      emotion: "élan",
-      image:
-        "medium shot, golden hour, determined character, dynamic composition",
-    },
-    {
-      description:
-        "plan culminant qui met en avant l'émotion centrale du projet.",
-      type: "plan rapproché",
-      camera: "léger arc de cercle",
-      decor: "arrière-plan diffus pour isoler le sujet",
-      light: "lumière dramatique contrôlée",
-      action: "expression intense face caméra",
-      emotion: "impact",
-      image:
-        "dramatic close shot, expressive face, shallow depth of field, emotional climax",
-    },
-    {
-      description:
-        "transition visuelle qui relie le récit à un nouvel espace ou une nouvelle énergie.",
-      type: "plan séquence court",
-      camera: "travelling latéral souple",
-      decor: "passage entre deux zones du décor",
-      light: "contre-jour léger",
-      action: "le personnage change de rythme et de direction",
-      emotion: "bascule",
-      image:
-        "cinematic transition shot, lateral tracking, soft backlight, changing energy",
-    },
-    {
-      description:
-        "tableau chorégraphié ou performatif qui donne de l'ampleur au clip.",
-      type: "plan large chorégraphié",
-      camera: "grue virtuelle ou drone lent",
-      decor: "espace ouvert mis en valeur par la composition",
-      light: "lumière contrastée premium",
-      action: "mouvement collectif ou performance centrale",
-      emotion: "puissance",
-      image:
-        "music video wide shot, choreographed movement, premium lighting, epic composition",
-    },
-    {
-      description:
-        "moment suspendu plus intime avant la dernière montée dramatique.",
-      type: "plan rapproché intime",
-      camera: "caméra fixe respirante",
-      decor: "décor apaisé avec textures naturelles",
-      light: "lumière douce et enveloppante",
-      action: "regard intérieur ou geste symbolique",
-      emotion: "vulnérabilité",
-      image:
-        "intimate cinematic close-up, soft wrap light, symbolic gesture, emotional pause",
-    },
-    {
-      description: "relance rythmique qui prépare la séquence finale.",
-      type: "plan moyen dynamique",
-      camera: "mouvement d'épaule énergique",
-      decor: "décor animé par le vent, la foule ou les éléments",
-      light: "lumière plus nerveuse et contrastée",
-      action: "accélération du jeu ou de la progression",
-      emotion: "tension",
-      image:
-        "dynamic medium shot, energetic handheld feel, cinematic tension, vivid environment",
-    },
-    {
-      description: "pré-climax visuel avec composition très graphique.",
-      type: "plan tableau",
-      camera: "zoom lent contrôlé",
-      decor: "décor stylisé à forte identité",
-      light: "éclairage sculpté",
-      action: "pose, arrêt ou geste clé du récit",
-      emotion: "affirmation",
-      image:
-        "graphic cinematic tableau, sculpted light, strong pose, visual statement",
-    },
-    {
-      description: "explosion émotionnelle et visuelle au coeur du morceau.",
-      type: "plan héro",
-      camera: "orbite ample autour du sujet",
-      decor: "décor principal à son maximum d'intensité",
-      light: "lumière dramatique spectaculaire",
-      action: "performance frontale et engagée",
-      emotion: "libération",
-      image:
-        "hero shot, dramatic orbit camera, spectacular lighting, emotional release",
-    },
-    {
-      description: "retombée poétique après le point culminant.",
-      type: "plan contemplatif",
-      camera: "recul lent",
-      decor: "retour à un espace plus ouvert et respirant",
-      light: "crépuscule doux",
-      action: "le personnage reprend son souffle ou s'éloigne",
-      emotion: "apaisement",
-      image:
-        "poetic contemplative shot, slow pull back, dusk atmosphere, emotional calm",
-    },
-    {
-      description:
-        "conclusion visuelle mémorable qui referme le récit sur une note forte.",
-      type: "plan large final",
-      camera: "recul lent",
-      decor: "décor initial réinterprété",
-      light: "ambiance crépusculaire",
-      action: "le personnage s'éloigne ou reste immobile dans un tableau final",
-      emotion: "résolution",
-      image:
-        "cinematic final wide shot, dusk light, poetic ending, memorable composition",
-    },
+function createMockStoryboard(body: StoryboardRequestBody): StoryboardResult {
+  const titre = sanitize(body.titre, "Bod lanme pa lwen");
+  const typeVideo = sanitize(body.typeVideo, "Clip musical");
+  const format = sanitize(body.format, "9:16 TikTok / Reels / Shorts");
+  const style = sanitize(body.style, "cinematique moderne caribeen");
+  const duree = sanitize(body.duree, "30 secondes");
+  const description = sanitize(
+    body.description,
+    "Un clip musical romantique au bord de mer, entre pluie, soleil et espoir.",
+  );
+  const planCount = getPlanCount(body.nombrePlans);
+
+  const prompts = [
+    "Premium AI music video scene, opening intro synced to the first instrumental bars, modern Caribbean cinematic style, Guadeloupe beach after rain, wet sand reflections, soft sunrise, one consistent lead artist facing the ocean, slow dolly-in, realistic skin, natural wind, emotional zouk romance, clean 9:16 composition, high-end music video lighting, no text, no logo.",
+    "Verse scene for an emotional zouk music video, the same lead artist walks slowly along the shoreline, subtle lip-sync feeling without exaggerated mouth movement, waves and tropical light matching a mid-tempo groove, handheld cinematic tracking shot, warm cyan and gold color grade, realistic Caribbean atmosphere, coherent wardrobe and location, no text.",
+    "Chorus scene with higher musical energy, romantic hope after rain, sunlight breaking through clouds, the same lead artist turns toward camera with restrained emotion, smooth crane-like movement, ocean spray, cinematic lens flare, premium music video realism, rhythm-aware visual pacing, no text overlays.",
+    "Lyrics visual moment, elegant animated words floating over ocean reflections, minimal typography, French and Creole romantic mood, soft particles, beat-synced movement, blue night and gold highlights, premium lyric video scene, readable but not cluttered, modern Caribbean visual identity.",
+    "Outro scene, final wide shot on a Guadeloupe beach, the artist faces the horizon as the music resolves, slow pullback, sun returns after rain, hopeful emotional ending, cohesive color grade, cinematic realism, professional AI music video finish, no watermark, no distorted hands.",
   ];
 
-  return templates[index % templates.length];
-}
+  const storyboard: StoryboardPlan[] = Array.from(
+    { length: planCount },
+    (_, index) => ({
+      plan: index + 1,
+      titre_etape:
+        index === 0
+          ? "Intro visuelle et ambiance musicale"
+          : index === planCount - 1
+            ? "Outro emotionnelle et signature du clip"
+            : `Sequence musicale ${index + 1}`,
+      duree: `${Math.max(3, Math.round(30 / planCount))} secondes`,
+      description:
+        index === 0
+          ? `Ouverture du clip: ${description}`
+          : `Sequence ${index + 1} qui developpe l'emotion, le lieu et le rythme du projet.`,
+      camera:
+        index % 2 === 0
+          ? "Travelling lent et stable vers le sujet"
+          : "Plan rapproche avec profondeur de champ douce",
+      texte_ecran:
+        index === 3
+          ? "Bod lanme pa lwen"
+          : index === planCount - 1
+            ? "Votre idee devient une video"
+            : "",
+      dialogue:
+        typeVideo.toLowerCase().includes("clip")
+          ? "Intention clip : laisser l'image raconter l'emotion, avec paroles visibles seulement sur les phrases fortes."
+          : "Intention video : rendre le message clair, humain et immediatement comprehensible.",
+      objectif_pedagogique:
+        "Transformer le concept en scene exploitable avec une intention visuelle claire, un rythme lisible et une continuite artistique.",
+      rythme_musical:
+        index === 0
+          ? "Intro / installation du theme"
+          : index === planCount - 1
+            ? "Outro / resolution emotionnelle"
+            : "Couplet ou refrain selon l'energie du morceau",
+      direction_artistique:
+        "Identite coherente sur tout le clip: meme personnage, meme lieu, meme colorimetrie, mouvements camera sobres.",
+      prompt_video_ia: prompts[index % prompts.length],
+      negative_prompt:
+        "low quality, blurry, distorted face, extra fingers, bad anatomy, random text, watermark, logo, flicker, inconsistent character, chaotic camera",
+      transition:
+        index === planCount - 1
+          ? "Fondu final vers le logo Farozik"
+          : "Fondu lumineux rythme par la musique",
+      type_media: index === 3 ? "texte_anime" : "video_ia",
+      statut: "prompt_pret",
+    }),
+  );
 
-function buildMockStoryboard(body: StoryboardRequestBody) {
-  const title = body.titre?.trim() || "Projet sans titre";
-  const videoType = body.typeVideo?.trim() || "Vidéo créative";
-  const duration = body.duree?.trim() || "Durée libre";
-  const format = body.format?.trim() || "Format libre";
-  const style = body.style?.trim() || "Style cinématique";
-  const description =
-    body.description?.trim() ||
-    body.prompt?.trim() ||
-    "Storyboard de démonstration généré en mode local.";
-  const planCount = getMockPlanCount(body);
-  const plans = Array.from({ length: planCount }, (_, index) => {
-    const template = getMockPlanTemplate(index);
-
-    return `Plan ${index + 1}
-- Description visuelle : ${template.description}
-- Type de plan : ${template.type}
-- Mouvement caméra : ${template.camera}
-- Décor : ${template.decor}
-- Lumière : ${template.light}
-- Action : ${template.action}
-- Émotion recherchée : ${template.emotion}
-- Suggestion de prompt image IA : ${template.image}`;
-  }).join("\n\n");
-
-  return `Titre du projet : ${title}
-
-Résumé de l'histoire :
-Cette version est un storyboard de démonstration généré localement pour permettre de tester l'interface sans appel OpenAI. Le concept repose sur ${description.toLowerCase()} avec une mise en scène ${style.toLowerCase()} pensée pour un ${videoType.toLowerCase()} au format ${format} sur une durée de ${duration}.
-
-${plans}`;
+  return {
+    titre,
+    type_video: typeVideo,
+    format,
+    style,
+    duree_totale: duree,
+    resume: `Storyboard V1 genere en mode mock pour tester Rudyo sans consommer de credits OpenAI. Le projet transforme ${description.toLowerCase()} en clip pret a produire.`,
+    storyboard,
+  };
 }
 
 function buildPrompt(body: StoryboardRequestBody) {
-  if (typeof body.prompt === "string" && body.prompt.trim()) {
-    return body.prompt.trim();
+  return `Tu es Rudyo Video Studio IA, un directeur artistique IA specialise en clips musicaux, lyrics videos, videos promotionnelles et videos de formation.
+
+Objectif qualite:
+- Produire un resultat comparable aux meilleurs generateurs de music video IA, mais avec une redaction plus professionnelle, plus coherente et plus exploitable.
+- Ne cite jamais une marque concurrente dans la reponse.
+- Pense comme un realisateur: structure musicale, continuite visuelle, rythme, personnages, lieux, camera, transitions, paroles, emotions.
+- Chaque plan doit pouvoir etre copie directement dans Runway, Veo, Kling, Luma ou un autre generateur video IA.
+- Les prompts video IA doivent decrire une vraie scene filmable, pas une idee vague.
+- Evite les prompts generiques du type "beautiful cinematic scene". Donne sujet, action, lieu, lumiere, camera, emotion, rythme, style et contraintes de qualite.
+
+Genere un storyboard video structure en JSON strict.
+
+Contraintes:
+- Reponds uniquement avec un JSON valide.
+- Les prompts video IA doivent etre en anglais.
+- Le reste peut etre en francais.
+- Le champ storyboard doit contenir exactement ${getPlanCount(body.nombrePlans)} plans.
+- Si le projet contient des paroles ou une chanson, decoupe mentalement en intro, couplet, refrain, pont, outro.
+- Si aucune musique n'est fournie, cree une structure musicale plausible adaptee a la duree.
+- Garde une continuite visuelle: memes personnages, meme univers, meme palette, meme niveau de realisme.
+- Ajoute une ligne de dialogue ou d'intention si utile; pour un clip musical, le dialogue peut etre une intention de jeu ou de lyrics.
+- type_media doit etre l'une de ces valeurs: video_ia, image, tournage_reel, texte_anime.
+- statut doit etre l'une de ces valeurs: a_creer, prompt_pret, media_ajoute, valide.
+
+Schema attendu:
+{
+  "titre": "string",
+  "type_video": "string",
+  "format": "string",
+  "style": "string",
+  "duree_totale": "string",
+  "resume": "string",
+  "storyboard": [
+    {
+      "plan": 1,
+      "titre_etape": "string",
+      "duree": "string",
+      "description": "string",
+      "camera": "string",
+      "texte_ecran": "string",
+      "dialogue": "string",
+      "objectif_pedagogique": "string",
+      "rythme_musical": "string",
+      "direction_artistique": "string",
+      "prompt_video_ia": "English video generation prompt",
+      "negative_prompt": "English negative prompt",
+      "transition": "string",
+      "type_media": "video_ia",
+      "statut": "prompt_pret"
+    }
+  ]
+}
+
+Projet:
+Titre: ${sanitize(body.titre, "Sans titre")}
+Type video: ${sanitize(body.typeVideo, "Video creative")}
+Duree: ${sanitize(body.duree, "30 secondes")}
+Format: ${sanitize(body.format, "9:16")}
+Style: ${sanitize(body.style, "cinematique moderne")}
+Langue: ${sanitize(body.langue, "francais")}
+Public cible: ${sanitize(body.publicCible, "public general")}
+Description: ${sanitize(body.description, "Concept video a developper")}`;
+}
+
+function defaultNegativePrompt(value: unknown) {
+  const current = sanitize(value);
+  return (
+    current ||
+    "low quality, blurry, distorted face, bad anatomy, extra fingers, random text, watermark, logo, flicker, inconsistent character, inconsistent wardrobe, chaotic camera, poor lighting"
+  );
+}
+
+function isPromptDetailed(prompt: string) {
+  const lower = prompt.toLowerCase();
+  const requiredSignals = [
+    "camera",
+    "lighting",
+    "cinematic",
+    "music video",
+    "no text",
+  ];
+
+  return prompt.length >= 260 && requiredSignals.filter((word) => lower.includes(word)).length >= 3;
+}
+
+function enhanceVideoPrompt(
+  prompt: string,
+  plan: Partial<StoryboardPlan>,
+  project: StoryboardResult,
+) {
+  if (isPromptDetailed(prompt)) {
+    return prompt;
   }
 
-  const { titre, typeVideo, duree, format, style, description, nombrePlans } =
-    body;
+  const step = sanitize(plan.titre_etape, `Scene ${plan.plan ?? ""}`);
+  const description = sanitize(plan.description, project.resume);
+  const camera = sanitize(plan.camera, "smooth cinematic camera movement");
+  const rhythm = sanitize(plan.rythme_musical, "beat-synced visual pacing");
+  const direction = sanitize(
+    plan.direction_artistique,
+    "consistent lead character, coherent wardrobe, same color grade, premium realistic music video identity",
+  );
+  const style = sanitize(project.style, "premium cinematic realism");
+  const format = sanitize(project.format, "vertical 9:16");
 
-  if (!titre && !description) {
-    return null;
+  return [
+    `Premium AI music video scene for "${project.titre}", section: ${step}.`,
+    `Visual action: ${description}.`,
+    `Camera direction: ${camera}, stable professional movement, intentional framing, rhythm-aware cuts.`,
+    `Music timing: ${rhythm}, visuals should feel synchronized with the song energy and emotional progression.`,
+    `Art direction: ${direction}.`,
+    `Style: ${style}, high-end cinematic lighting, realistic texture, natural skin, clean composition, ${format}.`,
+    "Keep visual continuity with the same character, location palette and mood across the whole music video.",
+    "No text overlays unless this is explicitly a lyrics scene, no watermark, no logo, no random captions.",
+    prompt ? `Original creative idea to preserve: ${prompt}.` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function validateStoryboard(value: unknown): StoryboardResult {
+  const result = value as StoryboardResult;
+  if (!result?.titre || !Array.isArray(result.storyboard)) {
+    throw new Error("Reponse IA invalide: storyboard manquant.");
   }
 
-  const requestedPlans = Number.parseInt(String(nombrePlans ?? ""), 10);
-  const planInstruction =
-    Number.isFinite(requestedPlans) && requestedPlans > 0
-      ? `${requestedPlans}`
-      : "10 à 20";
-
-  return `Crée un storyboard professionnel à partir de cette idée :
-
-Titre : ${titre ?? "Sans titre"}
-Type de vidéo : ${typeVideo ?? "Non précisé"}
-Durée : ${duree ?? "Non précisée"}
-Format : ${format ?? "Non précisé"}
-Style : ${style ?? "Non précisé"}
-Nombre de plans souhaité : ${planInstruction}
-Description : ${description ?? "Non précisée"}
-
-Réponds en français avec :
-1. Titre du projet
-2. Résumé de l'histoire
-3. Liste de ${planInstruction} plans si possible
-4. Pour chaque plan :
-- Numéro du plan
-- Description visuelle
-- Type de plan
-- Mouvement caméra
-- Décor
-- Lumière
-- Action
-- Émotion recherchée
-- Suggestion de prompt image IA`;
+  return {
+    ...result,
+    storyboard: result.storyboard.map((plan, index) => ({
+      plan: Number(plan.plan) || index + 1,
+      titre_etape: String(plan.titre_etape ?? ""),
+      duree: String(plan.duree ?? ""),
+      description: String(plan.description ?? ""),
+      camera: String(plan.camera ?? ""),
+      texte_ecran: String(plan.texte_ecran ?? ""),
+      dialogue: String(plan.dialogue ?? ""),
+      objectif_pedagogique: String(plan.objectif_pedagogique ?? ""),
+      rythme_musical: String(plan.rythme_musical ?? ""),
+      direction_artistique: String(plan.direction_artistique ?? ""),
+      prompt_video_ia: enhanceVideoPrompt(
+        String(plan.prompt_video_ia ?? ""),
+        plan,
+        result,
+      ),
+      negative_prompt: defaultNegativePrompt(plan.negative_prompt),
+      transition: String(plan.transition ?? ""),
+      type_media: plan.type_media ?? "video_ia",
+      statut: plan.statut ?? "prompt_pret",
+    })),
+  };
 }
 
 export async function POST(req: NextRequest) {
-  let body: StoryboardRequestBody = {};
-  const action: CreditAction = "storyboard_complete";
+  let reservation: Awaited<ReturnType<typeof reserveCredits>> | null = null;
 
   try {
-    body = (await req.json()) as StoryboardRequestBody;
-    const user = await getCurrentUserFromRequest(req);
+    const user = await getCurrentUser(req);
     if (!user) {
       return NextResponse.json(
-        { error: "Connectez-vous pour utiliser vos crédits Rudyo." },
+        {
+          success: false,
+          error:
+            "Utilisateur non authentifie. Connectez-vous ou creez un compte pour generer un storyboard Rudyo.",
+        },
         { status: 401 },
       );
     }
 
-    const prompt = buildPrompt(body);
-    if (!prompt) {
+    const body = (await req.json()) as StoryboardRequestBody;
+
+    if (!sanitize(body.titre) || !sanitize(body.description)) {
       return NextResponse.json(
-        { error: "Le prompt est obligatoire." },
+        {
+          success: false,
+          error: "Le titre et la description du projet sont obligatoires.",
+        },
         { status: 400 },
       );
     }
 
-    const transaction = await reserveCredits(
-      user.id,
-      action,
-      "Réservation storyboard Rudyo",
-      { provider: body.provider ?? "unknown", model: body.model ?? "default" },
-    );
-
-    try {
-      const generated = await generateWithBestProvider({
-        action,
-        prompt,
-        userId: user.id,
-        quality: process.env.DEFAULT_AI_QUALITY as
-          | "economy"
-          | "balanced"
-          | "premium"
-          | undefined,
-        preferredProvider: body.provider,
-        modelOverride: body.model,
-        userPlan: (user as { plan?: string }).plan,
-        allowPremiumAi: (user as { allowPremiumAi?: boolean }).allowPremiumAi,
-      });
-
-      await confirmCreditUsage(transaction.id);
-
-      await logAiUsage({
-        userId: user.id,
-        provider: generated.provider,
-        model: generated.model,
-        action,
-        estimatedInputTokens: undefined,
-        estimatedOutputTokens: undefined,
-        estimatedCost: undefined,
-        creditsCharged: transaction.amount,
-      });
-
+    if (process.env.USE_MOCK_STORYBOARD === "true") {
       return NextResponse.json({
         success: true,
-        storyboard: generated.text,
-        provider: generated.provider,
-        model: generated.model,
-        reason: generated.reason,
+        mode: "mock",
+        result: createMockStoryboard(body),
       });
-    } catch (error) {
-      await refundCreditUsage(transaction.id).catch(() => undefined);
-      throw error;
     }
-  } catch (error) {
-    console.error("Erreur API storyboard :", error);
 
-    if (
-      error instanceof Error &&
-      (error.message === "CREDITS_INSUFFICIENTS" ||
-        error.message.includes("Crédits insuffisants") ||
-        error.message.includes("Credits insuffisants"))
-    ) {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
       return NextResponse.json(
         {
+          success: false,
           error:
-            "Crédits Rudyo insuffisants ou action non couverte par votre plan.",
+            "OPENAI_API_KEY est manquante. Activez USE_MOCK_STORYBOARD=true ou configurez la cle OpenAI.",
+        },
+        { status: 500 },
+      );
+    }
+
+    reservation = await reserveCredits({
+      userId: user.id,
+      action: "storyboard_complete",
+      description: "Generation storyboard Rudyo avec OpenAI",
+      metadata: {
+        titre: sanitize(body.titre),
+        typeVideo: sanitize(body.typeVideo),
+        model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+      },
+    });
+
+    const client = new OpenAI({ apiKey });
+    const completion = await client.chat.completions.create({
+      model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content:
+            "Tu generes des storyboards video professionnels en JSON strict pour une application SaaS IA.",
+        },
+        {
+          role: "user",
+          content: buildPrompt(body),
+        },
+      ],
+    });
+
+    const text = completion.choices[0]?.message?.content;
+    if (!text) {
+      throw new Error("OpenAI n'a retourne aucun contenu.");
+    }
+
+    await confirmCreditUsage(reservation);
+
+    return NextResponse.json({
+      success: true,
+      mode: "openai",
+      creditsUsed: reservation.amount,
+      result: validateStoryboard(JSON.parse(text)),
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Erreur serveur inconnue.";
+    console.error("[rudyo-storyboard] erreur", { message });
+
+    if (reservation) {
+      await refundCreditUsage(reservation).catch(() => undefined);
+    }
+
+    if (message === "CREDITS_INSUFFICIENTS") {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Credits insuffisants. Choisissez un modele moins cher ou rechargez votre compte.",
         },
         { status: 402 },
       );
     }
 
-    const currentUser = await getCurrentUserFromRequest(req);
-    if (currentUser) {
-      const pending = await prisma.creditTransaction.findFirst({
-        where: {
-          userId: currentUser.id,
-          status: "PENDING",
-          description: "Réservation storyboard Rudyo",
-        },
-        orderBy: { createdAt: "desc" },
-      });
-      if (pending) {
-        await refundCreditUsage(pending.id).catch((refundError) => {
-          console.error("Erreur remboursement crédit :", refundError);
-        });
-      }
-    }
-
-    const fallbackStoryboard = buildMockStoryboard(body);
-
-    return NextResponse.json({
-      success: true,
-      storyboard: fallbackStoryboard,
-      fallback: true,
-      provider: "mock-local",
-    });
+    return NextResponse.json(
+      {
+        success: false,
+        error:
+          "Impossible de generer le storyboard pour le moment. Verifiez votre session et la configuration OpenAI.",
+        details: message,
+      },
+      { status: 500 },
+    );
   }
 }

@@ -9,13 +9,16 @@ import {
   isValidEmail,
   normalizeEmail,
   requireAuthSecret,
+  sanitizeUserName,
   signSessionCookie,
   validateDatabaseUrl,
   validateProductionSessionConfig,
 } from "@/lib/auth";
 
 function logStep(step: string, details?: Record<string, unknown>) {
-  console.info("[rudyo-session]", step, details ?? {});
+  if (process.env.NODE_ENV !== "production") {
+    console.info("[rudyo-session]", step, details ?? {});
+  }
 }
 
 function jsonError(error: string, status = 500) {
@@ -94,7 +97,10 @@ export async function handleSessionPost(req: NextRequest) {
           ? error.message
           : "Configuration serveur incomplète : AUTH_COOKIE_SECRET manquant ou invalide.";
       console.error("[rudyo-session] auth config error", { message });
-      return jsonError(message, 500);
+      return jsonError(
+        "Configuration serveur incomplète. Veuillez contacter l'administrateur.",
+        500,
+      );
     }
 
     const body = (await req.json().catch(() => null)) as {
@@ -102,7 +108,7 @@ export async function handleSessionPost(req: NextRequest) {
       name?: string;
     } | null;
     const email = normalizeEmail(body?.email ?? "");
-    const name = body?.name?.trim() || "";
+    const name = sanitizeUserName(body?.name);
 
     logStep("payload recu", {
       email,
@@ -110,11 +116,11 @@ export async function handleSessionPost(req: NextRequest) {
     });
 
     if (!email) {
-      return jsonError("Veuillez saisir une adresse email.", 400);
+      return jsonError("Veuillez saisir votre adresse email.", 400);
     }
 
     if (!isValidEmail(email)) {
-      return jsonError("Veuillez saisir une adresse email valide.", 400);
+      return jsonError("Adresse email invalide.", 400);
     }
 
     if (localSession) {
@@ -142,7 +148,10 @@ export async function handleSessionPost(req: NextRequest) {
           ? error.message
           : "Configuration serveur incomplète : DATABASE_URL manquant ou invalide.";
       console.error("[rudyo-session] database config error", { message });
-      return jsonError(message, 500);
+      return jsonError(
+        "Configuration serveur incomplète. Veuillez contacter l'administrateur.",
+        500,
+      );
     }
 
     logStep("connexion base de donnees");
@@ -171,7 +180,19 @@ export async function handleSessionPost(req: NextRequest) {
       message,
       name: error instanceof Error ? error.name : "UnknownError",
     });
-    return jsonError(message, 500);
+
+    if (
+      message.toLowerCase().includes("database") ||
+      message.toLowerCase().includes("prisma") ||
+      message.toLowerCase().includes("connect")
+    ) {
+      return jsonError(
+        "Impossible de créer votre compte pour le moment. Réessayez plus tard.",
+        500,
+      );
+    }
+
+    return jsonError("Impossible de créer votre session. Réessayez.", 500);
   }
 }
 

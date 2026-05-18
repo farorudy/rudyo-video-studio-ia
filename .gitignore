@@ -30,17 +30,26 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files (never commit local secrets)
+.env
+.env.local
+.env*.local
 .env*
 
 # vercel
 .vercel
 
+# local IDE files
+.vs/
+.vscode/
+
+# generated media exports
+media/export/
+media/generated/
+media/uploads/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
-
-.vercel
-.env*.local
 
 .fake.env.local

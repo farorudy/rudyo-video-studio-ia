@@ -119,7 +119,7 @@ export async function POST(request: NextRequest) {
         {
           success: false,
           error:
-            "Credits insuffisants. Rechargez votre compte ou choisissez une generation moins couteuse.",
+            "Crédits insuffisants. Choisissez un modèle moins cher ou rechargez votre compte.",
           redirectTo: "/credits",
         },
         { status: 402 },

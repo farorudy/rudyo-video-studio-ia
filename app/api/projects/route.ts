@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listStorage, putStorageText, readStorageText } from "@/lib/storage";
 import { isAiProvider, type AiProvider } from "@/lib/ai-provider";
+import { getCurrentUser } from "@/lib/auth";
 
 function slugify(text: string): string {
   return text
@@ -13,8 +14,16 @@ function slugify(text: string): string {
 }
 
 // GET /api/projects — lister tous les projets
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const user = await getCurrentUser(request);
+    if (!user) {
+      return NextResponse.json(
+        { success: false, error: "Authentification requise." },
+        { status: 401 },
+      );
+    }
+
     const files = (await listStorage("projects/")).filter((item) =>
       item.key.endsWith(".json"),
     );
@@ -39,7 +48,9 @@ export async function GET() {
       }),
     );
 
-    const valid = projects.filter(Boolean).sort((a, b) => {
+    const valid = projects
+      .filter((project) => project && project.userId === user.id)
+      .sort((a, b) => {
       const dateA = a && a.savedAt ? new Date(a.savedAt).getTime() : 0;
       const dateB = b && b.savedAt ? new Date(b.savedAt).getTime() : 0;
       return dateB - dateA;
@@ -59,6 +70,14 @@ export async function GET() {
 // POST /api/projects — sauvegarder un projet
 export async function POST(request: NextRequest) {
   try {
+    const user = await getCurrentUser(request);
+    if (!user) {
+      return NextResponse.json(
+        { success: false, error: "Authentification requise." },
+        { status: 401 },
+      );
+    }
+
     const body = await request.json();
     const {
       titre,
@@ -87,6 +106,7 @@ export async function POST(request: NextRequest) {
 
     const project = {
       id,
+      userId: user.id,
       titre,
       savedAt: new Date().toISOString(),
       aiProvider: isAiProvider(aiProvider)

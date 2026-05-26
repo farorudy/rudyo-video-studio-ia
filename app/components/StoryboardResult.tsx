@@ -56,7 +56,7 @@ export default function StoryboardResult({
         <div className="mb-12">
           <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 mb-6">
             <span className="text-sm font-semibold text-emerald-400">
-              ✓ Storyboard généré
+              Storyboard généré
             </span>
           </div>
 
@@ -91,19 +91,19 @@ export default function StoryboardResult({
               onClick={onCopyAllPrompts}
               className="px-6 py-3 rounded-lg border border-cyan-500/50 bg-cyan-500/10 text-cyan-400 font-semibold hover:bg-cyan-500/20 transition-all"
             >
-              📋 Copier tous les prompts
+              Copier tous les prompts
             </button>
             <button
               onClick={onExportPDF}
               className="px-6 py-3 rounded-lg border border-slate-600 bg-slate-800 text-white font-semibold hover:bg-slate-700 transition-all"
             >
-              📄 Exporter en PDF
+              Exporter en PDF
             </button>
             <button
               onClick={onPrepareEditing}
               className="px-6 py-3 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-semibold hover:shadow-lg hover:shadow-cyan-500/30 transition-all"
             >
-              🎬 Préparer mon montage
+              Préparer mon montage
             </button>
           </div>
         </div>
@@ -150,7 +150,7 @@ export default function StoryboardResult({
                   </div>
                 </div>
                 <div className="text-slate-400 ml-4">
-                  {expandedPlan === plan.plan ? "▼" : "▶"}
+                  {expandedPlan === plan.plan ? "Masquer" : "Voir"}
                 </div>
               </button>
 
@@ -196,10 +196,10 @@ export default function StoryboardResult({
                   {/* Action Buttons */}
                   <div className="flex gap-2 pt-2">
                     <button className="flex-1 px-4 py-2 rounded-lg border border-slate-600 bg-slate-800 text-white font-semibold text-sm hover:bg-slate-700 transition-all">
-                      ✏️ Modifier
+                      Modifier
                     </button>
                     <button className="flex-1 px-4 py-2 rounded-lg border border-slate-600 bg-slate-800 text-white font-semibold text-sm hover:bg-slate-700 transition-all">
-                      🎨 Aperçu
+                      Aperçu
                     </button>
                   </div>
                 </div>

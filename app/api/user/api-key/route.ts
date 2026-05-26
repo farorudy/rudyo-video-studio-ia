@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { createCipheriv, createDecipheriv, randomBytes } from "crypto";
+import { createCipheriv, randomBytes } from "crypto";
 
 const ALGORITHM = "aes-256-gcm";
 const SECRET = process.env.API_KEY_ENCRYPTION_SECRET || "";
@@ -21,19 +21,6 @@ function encryptApiKey(key: string) {
   const encrypted = Buffer.concat([cipher.update(key, "utf8"), cipher.final()]);
   const authTag = cipher.getAuthTag();
   return `${iv.toString("base64")}:${encrypted.toString("base64")}:${authTag.toString("base64")}`;
-}
-
-function decryptApiKey(payload: string) {
-  const [ivPart, encryptedPart, tagPart] = payload.split(":");
-  if (!ivPart || !encryptedPart || !tagPart) return null;
-  const iv = Buffer.from(ivPart, "base64");
-  const encrypted = Buffer.from(encryptedPart, "base64");
-  const tag = Buffer.from(tagPart, "base64");
-  const decipher = createDecipheriv(ALGORITHM, getSecretKey(), iv);
-  decipher.setAuthTag(tag);
-  return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString(
-    "utf8",
-  );
 }
 
 export async function GET(req: NextRequest) {

@@ -68,7 +68,7 @@ export default function ProjectsList() {
           href="/studio"
           className="mt-6 inline-flex rounded-2xl bg-cyan-400 px-5 py-3 font-black text-slate-950 hover:bg-cyan-300"
         >
-          Creer un projet
+          Créer un projet
         </Link>
       </div>
     );

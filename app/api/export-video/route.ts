@@ -1,9 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readStorageBuffer } from "@/lib/storage";
+import { getCurrentUser } from "@/lib/auth";
 
 export async function GET(req: NextRequest) {
   try {
-    const fileBuffer = await readStorageBuffer("export/clip_final.mp4");
+    const user = await getCurrentUser(req);
+    if (!user) {
+      return NextResponse.json(
+        { success: false, error: "Authentification requise." },
+        { status: 401 },
+      );
+    }
+
+    const fileBuffer = await readStorageBuffer(`export/${user.id}/clip_final.mp4`);
 
     if (!fileBuffer) {
       throw new Error("clip_final.mp4 introuvable");

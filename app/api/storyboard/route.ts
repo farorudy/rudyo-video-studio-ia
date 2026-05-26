@@ -6,22 +6,33 @@ import {
   refundCreditUsage,
   reserveCredits,
 } from "@/lib/credit-utils";
-import type { StoryboardPlan, StoryboardResult } from "@/lib/types";
+import type {
+  StoryboardApiError,
+  StoryboardApiResponse,
+  StoryboardPlan,
+  StoryboardRequest,
+  StoryboardResult,
+} from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type StoryboardRequestBody = {
-  titre?: string;
-  typeVideo?: string;
-  duree?: string;
-  format?: string;
-  style?: string;
-  langue?: string;
-  publicCible?: string;
-  nombrePlans?: string;
-  description?: string;
-};
+function jsonError(
+  code: StoryboardApiError["code"],
+  error: string,
+  status: number,
+  details?: string,
+) {
+  return NextResponse.json(
+    {
+      success: false,
+      code,
+      error,
+      details,
+    } satisfies StoryboardApiError,
+    { status },
+  );
+}
 
 function sanitize(value: unknown, fallback = "") {
   return typeof value === "string" && value.trim() ? value.trim() : fallback;
@@ -29,6 +40,7 @@ function sanitize(value: unknown, fallback = "") {
 
 function getPlanCount(value: unknown) {
   const parsed = Number.parseInt(String(value ?? ""), 10);
+
   if (!Number.isFinite(parsed)) {
     return 5;
   }
@@ -36,7 +48,35 @@ function getPlanCount(value: unknown) {
   return Math.min(12, Math.max(3, parsed));
 }
 
-function createMockStoryboard(body: StoryboardRequestBody): StoryboardResult {
+async function readStoryboardBody(req: NextRequest) {
+  try {
+    return (await req.json()) as Partial<StoryboardRequest>;
+  } catch {
+    return null;
+  }
+}
+
+function validateRequestBody(body: Partial<StoryboardRequest> | null) {
+  if (!body) {
+    return "Le corps de la requete doit etre un JSON valide.";
+  }
+
+  if (!sanitize(body.titre)) {
+    return "Le titre du projet est obligatoire.";
+  }
+
+  if (!sanitize(body.description)) {
+    return "La description de l'idee video est obligatoire.";
+  }
+
+  if (sanitize(body.description).length < 20) {
+    return "La description doit contenir au moins 20 caracteres.";
+  }
+
+  return null;
+}
+
+function createMockStoryboard(body: Partial<StoryboardRequest>): StoryboardResult {
   const titre = sanitize(body.titre, "Bod lanme pa lwen");
   const typeVideo = sanitize(body.typeVideo, "Clip musical");
   const format = sanitize(body.format, "9:16 TikTok / Reels / Shorts");
@@ -70,7 +110,7 @@ function createMockStoryboard(body: StoryboardRequestBody): StoryboardResult {
       description:
         index === 0
           ? `Ouverture du clip: ${description}`
-          : `Sequence ${index + 1} qui developpe l'emotion, le lieu et le rythme du projet.`,
+          : `Scene ${index + 1} qui developpe l'emotion, le lieu et le rythme du projet.`,
       camera:
         index % 2 === 0
           ? "Travelling lent et stable vers le sujet"
@@ -83,8 +123,8 @@ function createMockStoryboard(body: StoryboardRequestBody): StoryboardResult {
             : "",
       dialogue:
         typeVideo.toLowerCase().includes("clip")
-          ? "Intention clip : laisser l'image raconter l'emotion, avec paroles visibles seulement sur les phrases fortes."
-          : "Intention video : rendre le message clair, humain et immediatement comprehensible.",
+          ? "Intention clip: laisser l'image raconter l'emotion, avec paroles visibles seulement sur les phrases fortes."
+          : "Intention video: rendre le message clair, humain et immediatement comprehensible.",
       objectif_pedagogique:
         "Transformer le concept en scene exploitable avec une intention visuelle claire, un rythme lisible et une continuite artistique.",
       rythme_musical:
@@ -118,32 +158,21 @@ function createMockStoryboard(body: StoryboardRequestBody): StoryboardResult {
   };
 }
 
-function buildPrompt(body: StoryboardRequestBody) {
+function buildPrompt(body: Partial<StoryboardRequest>) {
   return `Tu es Rudyo Video Studio IA, un directeur artistique IA specialise en clips musicaux, lyrics videos, videos promotionnelles et videos de formation.
 
 Objectif qualite:
-- Produire un resultat comparable aux meilleurs generateurs de music video IA, mais avec une redaction plus professionnelle, plus coherente et plus exploitable.
-- Ne cite jamais une marque concurrente dans la reponse.
-- Pense comme un realisateur: structure musicale, continuite visuelle, rythme, personnages, lieux, camera, transitions, paroles, emotions.
-- Chaque plan doit pouvoir etre copie directement dans Runway, Veo, Kling, Luma ou un autre generateur video IA.
-- Les prompts video IA doivent decrire une vraie scene filmable, pas une idee vague.
-- Evite les prompts generiques du type "beautiful cinematic scene". Donne sujet, action, lieu, lumiere, camera, emotion, rythme, style et contraintes de qualite.
-
-Genere un storyboard video structure en JSON strict.
-
-Contraintes:
-- Reponds uniquement avec un JSON valide.
+- Produire un storyboard scene par scene professionnel, coherent et directement exploitable.
+- Repondre uniquement avec un JSON valide.
 - Les prompts video IA doivent etre en anglais.
 - Le reste peut etre en francais.
-- Le champ storyboard doit contenir exactement ${getPlanCount(body.nombrePlans)} plans.
+- Le champ storyboard doit contenir exactement ${getPlanCount(body.nombrePlans)} scenes.
 - Si le projet contient des paroles ou une chanson, decoupe mentalement en intro, couplet, refrain, pont, outro.
-- Si aucune musique n'est fournie, cree une structure musicale plausible adaptee a la duree.
 - Garde une continuite visuelle: memes personnages, meme univers, meme palette, meme niveau de realisme.
-- Ajoute une ligne de dialogue ou d'intention si utile; pour un clip musical, le dialogue peut etre une intention de jeu ou de lyrics.
 - type_media doit etre l'une de ces valeurs: video_ia, image, tournage_reel, texte_anime.
 - statut doit etre l'une de ces valeurs: a_creer, prompt_pret, media_ajoute, valide.
 
-Schema attendu:
+Schema JSON attendu:
 {
   "titre": "string",
   "type_video": "string",
@@ -184,9 +213,8 @@ Description: ${sanitize(body.description, "Concept video a developper")}`;
 }
 
 function defaultNegativePrompt(value: unknown) {
-  const current = sanitize(value);
   return (
-    current ||
+    sanitize(value) ||
     "low quality, blurry, distorted face, bad anatomy, extra fingers, random text, watermark, logo, flicker, inconsistent character, inconsistent wardrobe, chaotic camera, poor lighting"
   );
 }
@@ -201,7 +229,10 @@ function isPromptDetailed(prompt: string) {
     "no text",
   ];
 
-  return prompt.length >= 260 && requiredSignals.filter((word) => lower.includes(word)).length >= 3;
+  return (
+    prompt.length >= 260 &&
+    requiredSignals.filter((word) => lower.includes(word)).length >= 3
+  );
 }
 
 function enhanceVideoPrompt(
@@ -239,17 +270,33 @@ function enhanceVideoPrompt(
     .join(" ");
 }
 
+function parseAiJson(text: string) {
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new Error(
+      `AI_INVALID_JSON:${error instanceof Error ? error.message : "parse error"}`,
+    );
+  }
+}
+
 function validateStoryboard(value: unknown): StoryboardResult {
   const result = value as StoryboardResult;
+
   if (!result?.titre || !Array.isArray(result.storyboard)) {
-    throw new Error("Reponse IA invalide: storyboard manquant.");
+    throw new Error("AI_INVALID_JSON:storyboard manquant");
   }
 
   return {
-    ...result,
+    titre: String(result.titre),
+    type_video: String(result.type_video ?? "Video creative"),
+    format: String(result.format ?? "9:16"),
+    style: String(result.style ?? "cinematique moderne"),
+    duree_totale: String(result.duree_totale ?? "30 secondes"),
+    resume: String(result.resume ?? ""),
     storyboard: result.storyboard.map((plan, index) => ({
       plan: Number(plan.plan) || index + 1,
-      titre_etape: String(plan.titre_etape ?? ""),
+      titre_etape: String(plan.titre_etape ?? `Scene ${index + 1}`),
       duree: String(plan.duree ?? ""),
       description: String(plan.description ?? ""),
       camera: String(plan.camera ?? ""),
@@ -277,45 +324,38 @@ export async function POST(req: NextRequest) {
   try {
     const user = await getCurrentUser(req);
     if (!user) {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Utilisateur non authentifie. Connectez-vous ou creez un compte pour generer un storyboard Rudyo.",
-        },
-        { status: 401 },
+      return jsonError(
+        "AUTH_REQUIRED",
+        "Utilisateur non authentifie. Connectez-vous pour generer un storyboard Rudyo.",
+        401,
       );
     }
 
-    const body = (await req.json()) as StoryboardRequestBody;
-
-    if (!sanitize(body.titre) || !sanitize(body.description)) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Le titre et la description du projet sont obligatoires.",
-        },
-        { status: 400 },
+    const body = await readStoryboardBody(req);
+    const validationError = validateRequestBody(body);
+    if (validationError) {
+      return jsonError(
+        body ? "VALIDATION_ERROR" : "INVALID_JSON",
+        validationError,
+        400,
       );
     }
+    const validBody = body as Partial<StoryboardRequest>;
 
     if (process.env.USE_MOCK_STORYBOARD === "true") {
       return NextResponse.json({
         success: true,
         mode: "mock",
-        result: createMockStoryboard(body),
-      });
+        result: createMockStoryboard(validBody),
+      } satisfies StoryboardApiResponse);
     }
 
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "OPENAI_API_KEY est manquante. Activez USE_MOCK_STORYBOARD=true ou configurez la cle OpenAI.",
-        },
-        { status: 500 },
+      return jsonError(
+        "AI_CONFIG_MISSING",
+        "OPENAI_API_KEY est manquante. Activez USE_MOCK_STORYBOARD=true ou configurez la cle OpenAI.",
+        500,
       );
     }
 
@@ -324,8 +364,8 @@ export async function POST(req: NextRequest) {
       action: "storyboard_complete",
       description: "Generation storyboard Rudyo avec OpenAI",
       metadata: {
-        titre: sanitize(body.titre),
-        typeVideo: sanitize(body.typeVideo),
+        titre: sanitize(validBody.titre),
+        typeVideo: sanitize(validBody.typeVideo),
         model: process.env.OPENAI_MODEL || "gpt-4o-mini",
       },
     });
@@ -342,24 +382,25 @@ export async function POST(req: NextRequest) {
         },
         {
           role: "user",
-          content: buildPrompt(body),
+          content: buildPrompt(validBody),
         },
       ],
     });
 
     const text = completion.choices[0]?.message?.content;
     if (!text) {
-      throw new Error("OpenAI n'a retourne aucun contenu.");
+      throw new Error("AI_EMPTY_RESPONSE");
     }
 
+    const result = validateStoryboard(parseAiJson(text));
     await confirmCreditUsage(reservation);
 
     return NextResponse.json({
       success: true,
       mode: "openai",
       creditsUsed: reservation.amount,
-      result: validateStoryboard(JSON.parse(text)),
-    });
+      result,
+    } satisfies StoryboardApiResponse);
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Erreur serveur inconnue.";
@@ -370,24 +411,35 @@ export async function POST(req: NextRequest) {
     }
 
     if (message === "CREDITS_INSUFFICIENTS") {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Credits insuffisants. Choisissez un modele moins cher ou rechargez votre compte.",
-        },
-        { status: 402 },
+      return jsonError(
+        "CREDITS_INSUFFICIENTS",
+        "Credits insuffisants. Rechargez votre compte pour generer ce storyboard.",
+        402,
       );
     }
 
-    return NextResponse.json(
-      {
-        success: false,
-        error:
-          "Impossible de generer le storyboard pour le moment. Verifiez votre session et la configuration OpenAI.",
-        details: message,
-      },
-      { status: 500 },
+    if (message === "AI_EMPTY_RESPONSE") {
+      return jsonError(
+        "AI_EMPTY_RESPONSE",
+        "Le modele IA n'a retourne aucun contenu.",
+        502,
+      );
+    }
+
+    if (message.startsWith("AI_INVALID_JSON:")) {
+      return jsonError(
+        "AI_INVALID_JSON",
+        "Le modele IA a retourne une structure de storyboard invalide.",
+        502,
+        message.replace("AI_INVALID_JSON:", ""),
+      );
+    }
+
+    return jsonError(
+      "SERVER_ERROR",
+      "Impossible de generer le storyboard pour le moment.",
+      500,
+      message,
     );
   }
 }

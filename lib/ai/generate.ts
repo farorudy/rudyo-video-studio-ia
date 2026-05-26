@@ -11,6 +11,10 @@ import {
 } from "@/lib/ai/router";
 import { CreditAction } from "@/lib/credit-costs";
 import { AiQuality } from "@/lib/ai/actions";
+import { generateWithOpenAI } from "./providers/openai";
+import { generateWithClaude } from "./providers/claude";
+import { generateWithMistral } from "./providers/mistral";
+import type { GenerateRequest, AIResponse, StoryboardJSON } from "./types";
 
 type ResolvedAiSettings = ReturnType<typeof resolveAiProviderSettings> & {
   baseUrl?: string;
@@ -81,7 +85,10 @@ function getEstimatedCredits(action: CreditAction) {
   return costs[action] ?? 0;
 }
 
-function getProviderLabel(provider: AiProviderName, settings?: ResolvedAiSettings) {
+function getProviderLabel(
+  provider: AiProviderName,
+  settings?: ResolvedAiSettings,
+) {
   if (settings?.label) {
     return settings.label;
   }
@@ -312,4 +319,144 @@ export async function generateWithBestProvider(
     estimatedCredits,
     reason: selection.reason + (fallbackReason ? ` (${fallbackReason})` : ""),
   };
+}
+
+// ============= Storyboard Generation with Multi-Provider Support =============
+
+export type StoryboardGenerateRequest = GenerateRequest & {
+  userId?: string;
+};
+
+export type StoryboardGenerateResponse = AIResponse & {
+  tableFormatted?: string;
+};
+
+const storyboardProviders = {
+  creative: generateWithOpenAI,
+  expert: generateWithClaude,
+  sovereign: generateWithMistral,
+};
+
+export async function generateStoryboard(
+  request: StoryboardGenerateRequest,
+): Promise<StoryboardGenerateResponse> {
+  const primaryProvider = storyboardProviders[request.mode];
+
+  try {
+    console.log(
+      `[Storyboard] Generating with ${request.mode} mode (${request.provider ?? "primary"})`,
+    );
+    const response = await primaryProvider(request);
+    return {
+      ...response,
+      tableFormatted: formatStoryboardAsTable(response.content),
+    };
+  } catch (primaryError) {
+    console.error(`[Storyboard] ${request.mode} provider failed:`, primaryError);
+    return await storyboardFallback(request, request.mode);
+  }
+}
+
+async function storyboardFallback(
+  request: StoryboardGenerateRequest,
+  failedMode: string,
+): Promise<StoryboardGenerateResponse> {
+  const fallbackPriority = (
+    process.env.AI_FALLBACK_PRIORITY || "creative,expert,sovereign"
+  )
+    .split(",")
+    .map((m) => m.trim() as keyof typeof storyboardProviders);
+
+  console.warn(
+    `[Storyboard] Primary mode ${failedMode} failed, attempting fallback with priority: ${fallbackPriority.join(" > ")}`,
+  );
+
+  for (const mode of fallbackPriority) {
+    if (mode === failedMode) continue;
+
+    if (!isStoryboardModeEnabled(mode)) {
+      console.log(
+        `[Storyboard] Fallback mode ${mode} is disabled, skipping`,
+      );
+      continue;
+    }
+
+    try {
+      console.log(`[Storyboard] Attempting fallback with ${mode} mode`);
+      const fallbackRequest = { ...request, mode };
+      const provider = storyboardProviders[mode];
+      const result = await provider(fallbackRequest);
+      console.log(`[Storyboard] Fallback succeeded with ${mode} mode`);
+      return {
+        ...result,
+        tableFormatted: formatStoryboardAsTable(result.content),
+      };
+    } catch (error) {
+      console.error(`[Storyboard] Fallback ${mode} failed:`, error);
+    }
+  }
+
+  throw new Error(
+    "All storyboard providers failed. No fallback available.",
+  );
+}
+
+function isStoryboardModeEnabled(mode: string): boolean {
+  const envKey = `AI_ENABLE_${mode.toUpperCase()}`;
+  return process.env[envKey] !== "false";
+}
+
+export function formatStoryboardAsTable(storyboard: StoryboardJSON): string {
+  const { project, scenes } = storyboard;
+
+  let table = `
+╔════════════════════════════════════════════════════════════════╗
+║                    STORYBOARD: ${project.title.padEnd(37)}║
+╚════════════════════════════════════════════════════════════════╝
+
+📌 PROJECT DETAILS
+├─ Objectif: ${project.objective}
+├─ Public cible: ${project.targetAudience}
+├─ Durée: ${project.recommendedDuration}s
+├─ Format: ${project.recommendedFormat}
+├─ Style: ${project.visualStyle}
+├─ Ton: ${project.tone}
+├─ Mode IA: ${project.aiMode} (${project.aiProvider})
+└─ Créé: ${new Date(project.createdAt).toLocaleString("fr-FR")}
+
+🎬 SCÈNES (${scenes.length} total)
+`;
+
+  scenes.forEach((scene) => {
+    table += `
+${"─".repeat(60)}
+📍 Scène ${scene.id}: ${scene.title} (${scene.duration}s)
+
+Description:
+${scene.description}
+
+Texte à l'écran:
+${scene.onScreenText}
+
+Voix off:
+${scene.voiceOver}
+
+Ambiance sonore:
+${scene.soundscape}
+
+Mouvements caméra:
+${scene.cameraMovement}
+
+Transition:
+${scene.transition}
+
+Prompt visuel:
+${scene.visualPrompt}
+
+Prompt vidéo:
+${scene.videoPrompt}
+`;
+  });
+
+  return table;
 }

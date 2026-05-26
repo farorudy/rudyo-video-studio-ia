@@ -7,6 +7,12 @@ import {
   resolveModelForProvider,
   resolveRemoteAiSettings,
 } from "@/lib/ai-provider";
+import { getCurrentUser } from "@/lib/auth";
+import {
+  confirmCreditUsage,
+  refundCreditUsage,
+  reserveCredits,
+} from "@/lib/credit-utils";
 import { callOllamaGenerate } from "@/lib/ollama";
 import { putStorageText, toClientFileRef } from "@/lib/storage";
 
@@ -150,13 +156,13 @@ function buildClipPromptDrafts(body: ClipPackageRequest) {
       pickLine(section, "Description visuelle") ||
       section.replace(/\s+/g, " ").slice(0, 220);
     const action =
-      pickLine(section, "Action") || "Action Ã  interprÃ©ter depuis le plan";
+      pickLine(section, "Action") || "Action à interpréter depuis le plan";
     const emotion =
-      pickLine(section, "Ã‰motion recherchÃ©e") || "Ã©motion cinÃ©matique";
+      pickLine(section, "Émotion recherchée") || "émotion cinématique";
     const decor =
-      pickLine(section, "DÃ©cor") || "set inspired by the storyboard";
+      pickLine(section, "Décor") || "set inspired by the storyboard";
     const camera =
-      pickLine(section, "Mouvement camÃ©ra") || "smooth cinematic movement";
+      pickLine(section, "Mouvement caméra") || "smooth cinematic movement";
     const promptImage =
       pickLine(section, "Suggestion de prompt image IA") ||
       `cinematic keyframe, ${style}, ${format}, ${description}`;
@@ -227,15 +233,15 @@ async function enhanceClipPromptsWithOllama(
   const format = body.format?.trim() || "16:9";
   const style = body.style?.trim() || "cinematic";
   const title = body.titre?.trim() || "Projet sans titre";
-  const prompt = `Tu es un prompt designer vidÃ©o. RÃ©ponds uniquement en JSON valide sous forme de tableau.
+  const prompt = `Tu es un prompt designer vidéo. Réponds uniquement en JSON valide sous forme de tableau.
 
 Projet : ${title}
 Format : ${format}
 Style : ${style}
 
-Pour chaque clip ci-dessous, rÃ©dige :
+Pour chaque clip ci-dessous, rédige :
 - promptImage : un prompt image propre pour un visuel de test Pollinations
-- promptVideo : un prompt vidÃ©o propre pour une future gÃ©nÃ©ration premium
+- promptVideo : un prompt vidéo propre pour une future génération premium
 
 Clips source :
 ${JSON.stringify(
@@ -271,7 +277,7 @@ Format attendu :
   const rawText = payload.response?.trim();
 
   if (!rawText) {
-    throw new Error("RÃ©ponse Ollama vide.");
+    throw new Error("Réponse Ollama vide.");
   }
 
   const parsed = JSON.parse(extractJsonPayload(rawText)) as Array<{
@@ -308,15 +314,15 @@ async function enhanceClipPromptsWithRemoteProvider(
   const format = body.format?.trim() || "16:9";
   const style = body.style?.trim() || "cinematic";
   const title = body.titre?.trim() || "Projet sans titre";
-  const prompt = `Tu es un prompt designer vidÃ©o. RÃ©ponds uniquement en JSON valide sous forme de tableau.
+  const prompt = `Tu es un prompt designer vidéo. Réponds uniquement en JSON valide sous forme de tableau.
 
 Projet : ${title}
 Format : ${format}
 Style : ${style}
 
-Pour chaque clip ci-dessous, rÃ©dige :
+Pour chaque clip ci-dessous, rédige :
 - promptImage : un prompt image propre pour un visuel de test Pollinations
-- promptVideo : un prompt vidÃ©o propre pour une future gÃ©nÃ©ration premium
+- promptVideo : un prompt vidéo propre pour une future génération premium
 
 Clips source :
 ${JSON.stringify(
@@ -349,7 +355,7 @@ Format attendu :
       {
         role: "system",
         content:
-          "Tu es un prompt designer vidÃ©o. RÃ©ponds uniquement en JSON valide sous forme de tableau.",
+          "Tu es un prompt designer vidéo. Réponds uniquement en JSON valide sous forme de tableau.",
       },
       { role: "user", content: prompt },
     ],
@@ -385,12 +391,12 @@ function buildTextExport(body: ClipPackageRequest, clips: ClipPrompt[]) {
   const header = [
     `Titre : ${body.titre || "Projet sans titre"}`,
     `Format : ${body.format || "16:9"}`,
-    `Style : ${body.style || "CinÃ©matique"}`,
-    `DurÃ©e : ${body.duree || "Non prÃ©cisÃ©e"}`,
+    `Style : ${body.style || "Cinématique"}`,
+    `Durée : ${body.duree || "Non précisée"}`,
     "",
     "Etapes :",
-    "1. GÃ©nÃ©rez une vidÃ©o par clip avec le prompt Video IA.",
-    "2. Placez les fichiers mp4 gÃ©nÃ©rÃ©s dans media/plans.",
+    "1. Générez une vidéo par clip avec le prompt Video IA.",
+    "2. Placez les fichiers mp4 générés dans media/plans.",
     "3. Placez la musique finale dans media/audio/musique.mp3.",
     "4. Lancez npm run montage pour assembler le clip final.",
     "",
@@ -399,7 +405,7 @@ function buildTextExport(body: ClipPackageRequest, clips: ClipPrompt[]) {
 
   const content = clips.flatMap((clip) => [
     `Clip ${clip.id} - ${clip.nom}`,
-    `DurÃ©e : ${clip.duree}`,
+    `Durée : ${clip.duree}`,
     `Description : ${clip.description}`,
     `Prompt Image IA : ${clip.promptImage}`,
     `Prompt Video IA : ${clip.promptVideo}`,
@@ -410,7 +416,21 @@ function buildTextExport(body: ClipPackageRequest, clips: ClipPrompt[]) {
 }
 
 export async function POST(req: NextRequest) {
+  let reservation: Awaited<ReturnType<typeof reserveCredits>> | null = null;
+
   try {
+    const user = await getCurrentUser(req);
+    if (!user) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Utilisateur non authentifié. Connectez-vous pour préparer un pack clip Rudyo.",
+        },
+        { status: 401 },
+      );
+    }
+
     const body = (await req.json()) as ClipPackageRequest;
     const selectedProvider = isAiProvider(body.provider)
       ? body.provider
@@ -420,11 +440,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          error: "Le storyboard est obligatoire pour prÃ©parer les clips.",
+          error: "Le storyboard est obligatoire pour préparer les clips.",
         },
         { status: 400 },
       );
     }
+
+    reservation = await reserveCredits({
+      userId: user.id,
+      action: "clip_package",
+      description: "Preparation pack clip Rudyo",
+      metadata: {
+        titre: body.titre?.trim() || "Projet sans titre",
+        provider: selectedProvider,
+      },
+    });
 
     const drafts = buildClipPromptDrafts(body);
     const clips =
@@ -481,8 +511,11 @@ export async function POST(req: NextRequest) {
       },
     );
 
+    await confirmCreditUsage(reservation);
+
     return NextResponse.json({
       success: true,
+      creditsUsed: reservation.amount,
       result: {
         clips,
         provider:
@@ -504,10 +537,25 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     console.error("Erreur package clips :", error);
 
+    if (reservation) {
+      await refundCreditUsage(reservation).catch(() => undefined);
+    }
+
+    if (error instanceof Error && error.message === "CREDITS_INSUFFICIENTS") {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Crédits insuffisants. Rechargez votre compte pour préparer ce pack clip.",
+        },
+        { status: 402 },
+      );
+    }
+
     return NextResponse.json(
       {
         success: false,
-        error: "Erreur lors de la prÃ©paration des clips.",
+        error: "Erreur lors de la préparation des clips.",
       },
       { status: 500 },
     );

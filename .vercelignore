@@ -1,0 +1,15 @@
+.git
+.next
+.vercel/output
+node_modules
+
+.env
+.env.local
+.env*.local
+
+*.log
+*.tsbuildinfo
+
+media/export
+media/generated
+media/uploads

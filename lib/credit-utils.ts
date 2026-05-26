@@ -88,7 +88,7 @@ export async function reserveCredits(...args: any[]): Promise<CreditReservation>
   const finalAmount = amount ?? getActionCreditCost(action);
 
   if (!userId) {
-    throw new Error("Utilisateur non authentifie.");
+    throw new Error("Utilisateur non authentifié.");
   }
 
   const balance = await getCreditBalance(userId);
@@ -163,6 +163,7 @@ export async function confirmCreditUsage(...args: any[]) {
         creditsRemaining: { gte: amount },
       },
       data: {
+        credits: { decrement: amount },
         creditsRemaining: { decrement: amount },
         creditsUsed: { increment: amount },
       },
@@ -175,6 +176,18 @@ export async function confirmCreditUsage(...args: any[]) {
       });
       throw new Error("CREDITS_INSUFFICIENTS");
     }
+
+    await tx.creditUsage.create({
+      data: {
+        userId: pending.userId,
+        amount,
+        reason: pending.description,
+        metadata: {
+          reservationId: pending.id,
+          action: pending.action,
+        },
+      },
+    });
 
     return tx.creditTransaction.update({
       where: { id: pending.id },
@@ -220,6 +233,7 @@ export async function refundCreditUsage(...args: any[]) {
       await tx.user.update({
         where: { id: transaction.userId },
         data: {
+          credits: { increment: amount },
           creditsRemaining: { increment: amount },
           creditsUsed: { decrement: amount },
         },
@@ -308,7 +322,7 @@ export async function debitCredits(
   metadata?: unknown,
 ) {
   if (!userId) {
-    throw new Error("Utilisateur non authentifie.");
+    throw new Error("Utilisateur non authentifié.");
   }
 
   if (isLocalUserId(userId)) {
@@ -326,6 +340,7 @@ export async function debitCredits(
     const updated = await tx.user.updateMany({
       where: { id: userId, creditsRemaining: { gte: amount } },
       data: {
+        credits: { decrement: amount },
         creditsRemaining: { decrement: amount },
         creditsUsed: { increment: amount },
       },
@@ -344,6 +359,15 @@ export async function debitCredits(
         description: description ?? "Utilisation credits Rudyo",
         metadata: metadata === undefined ? undefined : (metadata as object),
         status: TransactionStatus.CONFIRMED,
+      },
+    });
+
+    await tx.creditUsage.create({
+      data: {
+        userId,
+        amount,
+        reason: description ?? "Utilisation credits Rudyo",
+        metadata: metadata === undefined ? undefined : (metadata as object),
       },
     });
 
@@ -370,7 +394,7 @@ export async function refundCredits(
   metadata?: unknown,
 ) {
   if (!userId) {
-    throw new Error("Utilisateur non authentifie.");
+    throw new Error("Utilisateur non authentifié.");
   }
 
   if (isLocalUserId(userId)) {
@@ -387,6 +411,7 @@ export async function refundCredits(
   const user = await prisma.user.update({
     where: { id: userId },
     data: {
+      credits: { increment: amount },
       creditsRemaining: { increment: amount },
       creditsUsed: { decrement: amount },
     },
@@ -410,7 +435,7 @@ export async function addCredits(
   metadata?: unknown,
 ) {
   if (!userId) {
-    throw new Error("Utilisateur non authentifie.");
+    throw new Error("Utilisateur non authentifié.");
   }
 
   if (isLocalUserId(userId)) {
@@ -427,6 +452,7 @@ export async function addCredits(
   const user = await prisma.user.update({
     where: { id: userId },
     data: {
+      credits: { increment: amount },
       creditsTotal: { increment: amount },
       creditsRemaining: { increment: amount },
     },

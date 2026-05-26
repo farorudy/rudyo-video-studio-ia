@@ -161,7 +161,7 @@ export default function CreditDashboard() {
       <div className="mt-8 rounded-3xl border border-slate-800 bg-slate-950/80 p-6 text-sm text-slate-400">
         <p className="font-medium text-slate-100">Note importante</p>
         <p className="mt-3">
-          Les crédits Rudyo sont des crédits internes utilisables uniquement sur
+          Les tokens Rudyo sont des crédits internes utilisables uniquement sur
           la plateforme Rudyo Video Studio IA. Ils ne constituent pas des
           crédits OpenAI et ne donnent pas accès directement aux services
           OpenAI.

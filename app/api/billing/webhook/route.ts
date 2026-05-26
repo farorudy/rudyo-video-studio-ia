@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
-import { getStripeClient, getCreditPack } from "@/lib/stripe";
+import {
+  getStripeClient,
+  getCreditPack,
+  getFirstPurchaseBonusTokens,
+} from "@/lib/stripe";
 import { prisma } from "@/lib/prisma";
 import { getOrCreateUserByEmail } from "@/lib/auth";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 function resolveBillingStatus(
   status: string,
@@ -41,6 +48,71 @@ function mapSubscriptionPlan(stripePriceId: string, metadataPlan?: string) {
   return "FREE";
 }
 
+async function hasProcessedStripeSession(sessionId: string) {
+  const purchase = await prisma.transaction.findUnique({
+    where: { stripeSessionId: sessionId },
+    select: { id: true },
+  });
+  if (purchase) {
+    return true;
+  }
+
+  const existing = await prisma.creditTransaction.findFirst({
+    where: {
+      metadata: {
+        path: ["stripeSessionId"],
+        equals: sessionId,
+      },
+    },
+    select: { id: true },
+  });
+
+  return Boolean(existing);
+}
+
+async function resolveCheckoutUser(session: Stripe.Checkout.Session) {
+  const metadataUserId = session.metadata?.userId;
+  const customerId =
+    typeof session.customer === "string" ? session.customer : session.customer?.id;
+  const email = session.customer_details?.email?.trim().toLowerCase();
+
+  if (metadataUserId) {
+    const user = await prisma.user.findUnique({ where: { id: metadataUserId } });
+    if (user) {
+      if (customerId && user.stripeCustomerId !== customerId) {
+        return prisma.user.update({
+          where: { id: user.id },
+          data: { stripeCustomerId: customerId },
+        });
+      }
+      return user;
+    }
+  }
+
+  if (customerId) {
+    const user = await prisma.user.findUnique({
+      where: { stripeCustomerId: customerId },
+    });
+    if (user) {
+      return user;
+    }
+  }
+
+  if (!email) {
+    return null;
+  }
+
+  const user = await getOrCreateUserByEmail(email);
+  if (customerId && user.stripeCustomerId !== customerId) {
+    return prisma.user.update({
+      where: { id: user.id },
+      data: { stripeCustomerId: customerId },
+    });
+  }
+
+  return user;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.text();
@@ -71,47 +143,102 @@ export async function POST(req: NextRequest) {
         const metadata = session.metadata || {};
         const productId = metadata.productId as string | undefined;
         const mode = metadata.mode as string | undefined;
-        const email = session.customer_details?.email?.trim().toLowerCase();
-        if (!email) {
-          console.warn("Checkout session completed without email");
+        const customerId =
+          typeof session.customer === "string"
+            ? session.customer
+            : session.customer?.id;
+
+        if (session.mode === "payment" && session.payment_status !== "paid") {
+          console.warn("Checkout session completed before payment was paid", {
+            sessionId: session.id,
+            paymentStatus: session.payment_status,
+          });
           break;
         }
 
-        const user = await getOrCreateUserByEmail(email);
-        if (session.customer) {
-          await prisma.user.update({
-            where: { id: user.id },
-            data: { stripeCustomerId: String(session.customer) },
+        const user = await resolveCheckoutUser(session);
+        if (!user) {
+          console.warn("Checkout session completed without resolvable user", {
+            sessionId: session.id,
           });
+          break;
         }
 
         if (mode === "credit" && productId) {
           const creditPack = getCreditPack(productId);
           if (creditPack) {
-            await prisma.$transaction([
-              prisma.creditTransaction.create({
+            if (await hasProcessedStripeSession(session.id)) {
+              break;
+            }
+
+            await prisma.$transaction(async (tx) => {
+              const existing = await tx.transaction.findUnique({
+                where: { stripeSessionId: session.id },
+                select: { id: true },
+              });
+              if (existing) {
+                return;
+              }
+
+              const previousPurchases = await tx.transaction.count({
+                where: {
+                  userId: user.id,
+                  status: "CONFIRMED",
+                },
+              });
+              const bonusTokens =
+                previousPurchases === 0 ? getFirstPurchaseBonusTokens() : 0;
+              const totalTokens = creditPack.credits + bonusTokens;
+
+              await tx.transaction.create({
+                data: {
+                  userId: user.id,
+                  stripeSessionId: session.id,
+                  amount: session.amount_total ?? creditPack.amount,
+                  tokens: totalTokens,
+                  status: "CONFIRMED",
+                  metadata: {
+                    productId,
+                    stripeCustomerId: customerId,
+                    baseTokens: creditPack.credits,
+                    bonusTokens,
+                    currency: session.currency,
+                    couponFutureReady: true,
+                  },
+                },
+              });
+
+              await tx.creditTransaction.create({
                 data: {
                   userId: user.id,
                   type: "PURCHASE",
                   action: "OTHER",
-                  creditsAmount: creditPack.credits,
-                  description: `Achat de ${creditPack.name}`,
+                  creditsAmount: totalTokens,
+                  description:
+                    bonusTokens > 0
+                      ? `Achat ${creditPack.name} + bonus premier achat`
+                      : `Achat ${creditPack.name}`,
                   status: "CONFIRMED",
                   metadata: {
                     stripeSessionId: session.id,
                     productId,
+                    amount: session.amount_total ?? creditPack.amount,
+                    baseTokens: creditPack.credits,
+                    bonusTokens,
                   },
                 },
-              }),
-              prisma.user.update({
+              });
+
+              await tx.user.update({
                 where: { id: user.id },
                 data: {
-                  creditsTotal: { increment: creditPack.credits },
-                  creditsRemaining: { increment: creditPack.credits },
+                  credits: { increment: totalTokens },
+                  creditsTotal: { increment: totalTokens },
+                  creditsRemaining: { increment: totalTokens },
                   billingStatus: "ACTIVE",
                 },
-              }),
-            ]);
+              });
+            });
           }
         }
 

@@ -7,15 +7,31 @@ import {
   getStripeProductDescription,
 } from "@/lib/stripe";
 import { getCurrentUser } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+function getCheckoutOrigin(req: NextRequest) {
+  const configuredOrigin =
+    process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXT_PUBLIC_URL;
+  const fallbackOrigin = "https://rudyo-video-studio.vercel.app";
+
+  if (process.env.NODE_ENV === "production") {
+    return configuredOrigin ?? fallbackOrigin;
+  }
+
+  return req.headers.get("origin") ?? configuredOrigin ?? fallbackOrigin;
+}
 
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as {
       productId: string;
       mode?: "credit" | "subscription";
-      email?: string;
+      coupon?: string;
     };
-    const { productId, mode, email } = body;
+    const { productId, mode } = body;
     const product = getCreditPack(productId) || getSubscriptionPlan(productId);
     if (!product) {
       return NextResponse.json(
@@ -24,16 +40,45 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const stripe = getStripeClient();
     const user = await getCurrentUser(req);
-    const origin =
-      req.headers.get("origin") ??
-      process.env.NEXT_PUBLIC_URL ??
-      "https://rudyo-video-studio.vercel.app";
+    if (!user || user.localSession) {
+      return NextResponse.json(
+        {
+          error:
+            "Connectez-vous avec un compte Rudyo persistant avant d'acheter des tokens.",
+        },
+        { status: 401 },
+      );
+    }
+
+    const stripe = getStripeClient();
+    const origin = getCheckoutOrigin(req);
+    let stripeCustomerId = user.stripeCustomerId;
+
+    if (!stripeCustomerId) {
+      const customer = await stripe.customers.create({
+        email: user.email,
+        name: user.name ?? undefined,
+        metadata: {
+          userId: user.id,
+          app: "rudyo-video-studio-ia",
+        },
+      });
+      stripeCustomerId = customer.id;
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { stripeCustomerId },
+      });
+    }
+
+    const creditPack = getCreditPack(productId);
     const metadata = {
+      userId: user.id,
       productId,
       mode:
         mode ?? (getSubscriptionPlan(productId) ? "subscription" : "credit"),
+      tokens: creditPack ? String(creditPack.credits) : "",
+      app: "rudyo-video-studio-ia",
     };
     const isSubscription = Boolean(getSubscriptionPlan(productId));
     const unitAmount =
@@ -46,20 +91,30 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const lineItem = {
-      price_data: {
-        currency: "eur",
-        product_data: {
-          name: getStripeProductName(productId),
-          description: getStripeProductDescription(productId),
-        },
-        unit_amount: unitAmount,
-        recurring: isSubscription ? { interval: "month" } : undefined,
-      },
-      quantity: 1,
-    } as const;
+    const productData = {
+      name: getStripeProductName(productId),
+      description: getStripeProductDescription(productId),
+    };
+    const lineItem = isSubscription
+      ? {
+          price_data: {
+            currency: "eur",
+            product_data: productData,
+            unit_amount: unitAmount,
+            recurring: { interval: "month" as const },
+          },
+          quantity: 1,
+        }
+      : {
+          price_data: {
+            currency: "eur",
+            product_data: productData,
+            unit_amount: unitAmount,
+          },
+          quantity: 1,
+        };
 
-    const sessionCreate: Record<string, unknown> = {
+    const sessionCreate = {
       payment_method_types: ["card"],
       line_items: [lineItem],
       mode: getSubscriptionPlan(productId) ? "subscription" : "payment",
@@ -67,26 +122,30 @@ export async function POST(req: NextRequest) {
       cancel_url: `${origin}/offres/annule`,
       metadata,
       allow_promotion_codes: true,
-    };
-
-    if (user?.stripeCustomerId) {
-      sessionCreate.customer = user.stripeCustomerId;
-    } else if (user?.email) {
-      sessionCreate.customer_email = user.email;
-    } else if (email) {
-      sessionCreate.customer_email = email.trim().toLowerCase();
-    }
+      customer: stripeCustomerId,
+      client_reference_id: user.id,
+    } satisfies Parameters<typeof stripe.checkout.sessions.create>[0];
 
     if (getSubscriptionPlan(productId)) {
-      sessionCreate.metadata = {
-        ...metadata,
-        plan: productId,
+      const subscriptionSession = {
+        ...sessionCreate,
+        metadata: {
+          ...metadata,
+          plan: productId,
+        },
       };
-    } else {
-      sessionCreate.metadata = metadata;
+      const session =
+        await stripe.checkout.sessions.create(subscriptionSession);
+
+      return NextResponse.json({ url: session.url });
     }
 
-    const session = await stripe.checkout.sessions.create(sessionCreate as any);
+    const session = await stripe.checkout.sessions.create({
+      ...sessionCreate,
+      metadata: {
+        ...metadata,
+      },
+    });
 
     return NextResponse.json({ url: session.url });
   } catch (error) {

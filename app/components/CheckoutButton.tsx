@@ -23,12 +23,17 @@ export default function CheckoutButton({
     setError("");
 
     try {
-      const response = await fetch("/api/billing/create-checkout-session", {
+      const response = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ productId, mode }),
       });
       const data = await response.json();
+
+      if (response.status === 401) {
+        window.location.href = "/login";
+        return;
+      }
 
       if (!response.ok || !data.url) {
         throw new Error(data.error || "Paiement indisponible.");

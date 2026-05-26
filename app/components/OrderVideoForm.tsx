@@ -4,11 +4,11 @@ import { useState } from "react";
 
 const videoTypes = [
   "Flyer anime",
-  "Video promotionnelle",
+  "Vidéo promotionnelle",
   "Clip lyrics",
   "Clip IA complet",
   "Capsule de formation",
-  "Video evenementielle",
+  "Vidéo événementielle",
   "Pack reseaux sociaux",
 ];
 

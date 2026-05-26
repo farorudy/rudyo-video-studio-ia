@@ -22,7 +22,7 @@
  * }
  */
 
-const { execSync, spawnSync } = require("child_process");
+const { spawnSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
@@ -51,6 +51,13 @@ const exportPath = output.fichier
 const thumbnailPath = path.join(exportDir, "thumbnail.jpg");
 const resolution = output.resolution || "1280x720";
 const fps = output.fps || 24;
+const FONT_CANDIDATES = [
+  "C:/Windows/Fonts/arial.ttf",
+  "C:/Windows/Fonts/segoeui.ttf",
+  "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+  "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+  "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+];
 
 const musiqueVolume =
   audio.musiqueVolume !== undefined ? audio.musiqueVolume : 0.8;
@@ -66,6 +73,30 @@ if (clips.length === 0) {
 }
 
 // ── Résoudre les chemins des clips ──────────────────────────────────────────
+
+function resolveSubtitleFontFile() {
+  const configured = process.env.RUDYO_SUBTITLE_FONT;
+  const candidates = configured ? [configured, ...FONT_CANDIDATES] : FONT_CANDIDATES;
+  return candidates.find((fontPath) => fs.existsSync(fontPath)) || null;
+}
+
+function escapeDrawtextPath(value) {
+  return value
+    .replace(/\\/g, "/")
+    .replace(/:/g, "\\:")
+    .replace(/'/g, "\\'");
+}
+
+function escapeDrawtextText(value) {
+  return String(value ?? "")
+    .normalize("NFC")
+    .replace(/\r\n?/g, "\n")
+    .replace(/\\/g, "\\\\")
+    .replace(/'/g, "\\'")
+    .replace(/:/g, "\\:")
+    .replace(/%/g, "\\%")
+    .replace(/\n/g, "\\n");
+}
 
 const resolvedClips = clips.map((clip) => {
   const full = path.isAbsolute(clip.file)
@@ -119,16 +150,11 @@ function monterCut() {
   const [w, h] = resolution.split("x");
   const scaleFilter = `scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2,fps=${fps}`;
 
-  let filterComplex = `[0:v]${scaleFilter}[vout]`;
   let audioArgs = [];
-  let audioMap = "";
 
   if (audio.musique && fs.existsSync(path.join(ROOT, audio.musique))) {
     const musiqueFullPath = path.join(ROOT, audio.musique);
     audioArgs = ["-i", musiqueFullPath];
-    audioMap = `-map [vout] -map 1:a -c:a aac -shortest`;
-  } else {
-    audioMap = `-map [vout] -an`;
   }
 
   // Durée totale estimée pour le fade audio
@@ -248,6 +274,14 @@ function monterAvecTransitions() {
   let videoOutput = "[vfinal]";
 
   if (hasSubtitles) {
+    const subtitleFontFile = resolveSubtitleFontFile();
+    if (!subtitleFontFile) {
+      console.error(
+        "Sous-titres impossibles : aucune police compatible trouvee. Installez Arial, Segoe UI, DejaVu Sans, Noto Sans ou Liberation Sans, ou definissez RUDYO_SUBTITLE_FONT.",
+      );
+      process.exit(1);
+    }
+
     // Calculer les offsets temporels pour chaque clip afin d'afficher les sous-titres au bon moment
     let timeOffset = 0;
     const subtitleFilters = [];
@@ -259,12 +293,9 @@ function monterAvecTransitions() {
           timeOffset +
           durees[i] -
           (i < resolvedClips.length - 1 ? transitionDuree : 0);
-        const escapedText = clip.subtitleText
-          .replace(/\\/g, "\\\\")
-          .replace(/'/g, "\\'")
-          .replace(/:/g, "\\:");
+        const escapedText = escapeDrawtextText(clip.subtitleText);
         subtitleFilters.push(
-          `drawtext=fontsize=28:fontcolor=white:borderw=2:bordercolor=black:` +
+          `drawtext=fontfile=${escapeDrawtextPath(subtitleFontFile)}:fontsize=28:fontcolor=white:borderw=2:bordercolor=black:` +
             `x=(w-text_w)/2:y=h-70:text='${escapedText}':` +
             `enable='between(t,${startTime.toFixed(3)},${endTime.toFixed(3)})'`,
         );
@@ -299,8 +330,6 @@ function monterAvecTransitions() {
   // Audio
   let audioArgs = [];
   let audioFilterLines = [];
-  let audioMap = "";
-  let extraAudioInputs = 0;
 
   const musiqueFullPath = audio.musique ? path.join(ROOT, audio.musique) : null;
   const voixFullPath = audio.voix ? path.join(ROOT, audio.voix) : null;
@@ -310,11 +339,9 @@ function monterAvecTransitions() {
 
   if (musiqueExists) {
     audioArgs.push("-i", musiqueFullPath);
-    extraAudioInputs++;
   }
   if (voixExists) {
     audioArgs.push("-i", voixFullPath);
-    extraAudioInputs++;
   }
 
   const totalInputs = resolvedClips.length;
@@ -327,38 +354,14 @@ function monterAvecTransitions() {
         `[${voixIdx}:a]volume=${voixVolume}[avoix];` +
         `[amus][avoix]amix=inputs=2:duration=first:dropout_transition=3[aout]`,
     );
-    audioMap = `-map ${videoOutput} -map [aout] -c:a aac -shortest`;
   } else if (musiqueExists) {
     const musiqueIdx = totalInputs;
     audioFilterLines.push(
       `[${musiqueIdx}:a]afade=t=in:st=0:d=1.5,afade=t=out:st=${fadeOutSt}:d=3,volume=${musiqueVolume}[aout]`,
     );
-    audioMap = `-map ${videoOutput} -map [aout] -c:a aac -shortest`;
-  } else {
-    audioMap = `-map ${videoOutput} -an`;
   }
 
   const allFilters = [...filterLines, ...audioFilterLines].join(";");
-
-  const cmd = [
-    "ffmpeg",
-    "-y",
-    ...inputArgs,
-    ...audioArgs,
-    "-filter_complex",
-    `"${allFilters}"`,
-    "-map",
-    `${videoOutput}`,
-    ...(musiqueExists || voixExists ? ["-map", "[aout]", "-c:a", "aac"] : []),
-    "-c:v",
-    "libx264",
-    "-preset",
-    "fast",
-    "-crf",
-    "23",
-    "-shortest",
-    exportPath,
-  ];
 
   // Construction plus robuste avec spawn pour éviter les problèmes de quoting
   const ffmpegArgs = [

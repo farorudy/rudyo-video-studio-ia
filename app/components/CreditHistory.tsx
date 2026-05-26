@@ -29,7 +29,7 @@ export default function CreditHistory() {
           return;
         }
         setTransactions(json.transactions ?? []);
-      } catch (err) {
+      } catch {
         setError("Impossible de charger l’historique des crédits.");
       } finally {
         setLoading(false);
@@ -64,6 +64,7 @@ export default function CreditHistory() {
             <th className="px-4 py-3 text-slate-400">Type</th>
             <th className="px-4 py-3 text-slate-400">Action</th>
             <th className="px-4 py-3 text-slate-400">Crédits</th>
+            <th className="px-4 py-3 text-slate-400">Statut</th>
             <th className="px-4 py-3 text-slate-400">Description</th>
           </tr>
         </thead>
@@ -83,6 +84,9 @@ export default function CreditHistory() {
                 {transaction.creditsAmount > 0
                   ? `+${transaction.creditsAmount}`
                   : transaction.creditsAmount}
+              </td>
+              <td className="px-4 py-3 text-slate-300">
+                {transaction.status}
               </td>
               <td className="px-4 py-3 text-slate-300">
                 {transaction.description}

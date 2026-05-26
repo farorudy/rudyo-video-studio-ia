@@ -31,7 +31,7 @@ export default function DashboardPage() {
               Tableau de bord
             </p>
             <h1 className="text-4xl font-black md:text-6xl">
-              Pilotez votre studio video IA.
+              Pilotez votre studio vidéo IA.
             </h1>
             <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-300">
               Retrouvez vos credits, projets, exports, commandes et actions
@@ -72,7 +72,7 @@ export default function DashboardPage() {
                 href="/studio"
                 className="rounded-2xl bg-slate-900 px-5 py-4 font-bold text-cyan-300 hover:bg-slate-800"
               >
-                Generer un storyboard
+                Générer un storyboard
               </Link>
               <Link
                 href="/projects"

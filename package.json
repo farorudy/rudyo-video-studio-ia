@@ -3,16 +3,22 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
+    "dev": "next dev",
+    "dev:local": "node scripts/dev-local.mjs",
+    "setup:local": "node scripts/setup-local.mjs",
+    "setup:openai": "node scripts/setup-openai-local.mjs",
+    "check:local": "node scripts/check-local-env.mjs",
     "build": "prisma generate && next build",
     "start": "next start",
     "lint": "eslint .",
     "postinstall": "prisma generate",
     "montage": "node scripts/montage.js",
     "montage:advanced": "node scripts/montage-advanced.js",
-    "montage:smart": "node scripts/montage-smart.js"
+    "montage:smart": "node scripts/montage-smart.js",
+    "test:accented-slide": "tsx scripts/test-accented-slide.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.98.0",
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@ffprobe-installer/ffprobe": "^2.1.2",
     "@mistralai/mistralai": "^2.2.1",
@@ -20,6 +26,8 @@
     "@prisma/client": "^5.17.0",
     "@stripe/stripe-js": "^9.4.0",
     "@vercel/blob": "^2.3.3",
+    "ai": "^6.0.185",
+    "dotenv": "^17.4.2",
     "lucide-react": "^1.16.0",
     "next": "16.2.6",
     "openai": "^6.37.0",
@@ -28,17 +36,18 @@
     "resend": "^6.12.3",
     "sharp": "^0.34.5",
     "stripe": "^22.1.1",
+    "tsx": "^4.22.2",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
+    "@types/node": "^20.19.41",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
     "prisma": "^5.17.0",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5.9.3"
   }
 }

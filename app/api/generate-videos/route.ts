@@ -4,6 +4,7 @@ import {
   putStorageText,
   toClientFileRef,
 } from "@/lib/storage";
+import { getCurrentUser } from "@/lib/auth";
 
 type ClipPrompt = {
   id: number;
@@ -42,6 +43,10 @@ function slugify(value: string) {
     .slice(0, 50);
 }
 
+function sanitizeFileStem(value: string) {
+  return slugify(value) || `clip-${Date.now()}`;
+}
+
 function firstOutputUrl(output: unknown) {
   if (typeof output === "string") {
     return output;
@@ -70,6 +75,14 @@ async function fetchRemoteVideo(url: string) {
 
 export async function POST(req: NextRequest) {
   try {
+    const user = await getCurrentUser(req);
+    if (!user) {
+      return NextResponse.json(
+        { success: false, error: "Authentification requise." },
+        { status: 401 },
+      );
+    }
+
     const body = (await req.json()) as GenerateVideosRequest;
     const clips = body.clips ?? [];
 
@@ -153,16 +166,17 @@ export async function POST(req: NextRequest) {
           let savedTo: string | undefined;
 
           if (outputUrl) {
-            const fileName = `${clip.nom}.mp4`;
+            const fileName = `${sanitizeFileStem(clip.nom)}.mp4`;
             const videoBuffer = await fetchRemoteVideo(outputUrl);
+            const storageKey = `plans/${user.id}/${fileName}`;
             const stored = await putStorageBuffer(
-              `plans/${fileName}`,
+              storageKey,
               videoBuffer,
               {
                 contentType: "video/mp4",
               },
             );
-            savedTo = toClientFileRef(`plans/${fileName}`, stored.url);
+            savedTo = toClientFileRef(storageKey, stored.url);
           }
 
           return {
@@ -192,7 +206,7 @@ export async function POST(req: NextRequest) {
     );
 
     const baseName = slugify(body.titre?.trim() || "clip-video");
-    const manifestKey = `export/${baseName}-generation.json`;
+    const manifestKey = `export/${user.id}/${baseName}-generation.json`;
     const manifestPayload = JSON.stringify(
       {
         provider: "replicate",

@@ -50,25 +50,54 @@ enum CreditAction {
 }
 
 model User {
-  id                 String               @id @default(cuid())
-  email              String               @unique
-  name               String?
-  plan               UserPlan             @default(FREE)
-  creditsTotal       Int                  @default(0)
-  creditsUsed        Int                  @default(0)
-  creditsRemaining   Int                  @default(0)
-  monthlyLimit       Int                  @default(0)
-  monthlyUsed        Int                  @default(0)
-  billingStatus      BillingStatus        @default(ACTIVE)
-  stripeCustomerId   String?              @unique
-  preferredAiProvider String?
-  allowPremiumAi     Boolean              @default(false)
-  apiKey             String?
-  createdAt          DateTime             @default(now())
-  updatedAt          DateTime             @updatedAt
-  transactions       CreditTransaction[]
-  aiUsageLogs        AiUsageLog[]
-  subscriptions      Subscription[]
+  id                   String              @id @default(cuid())
+  email                String              @unique
+  name                 String?
+  credits              Int                 @default(0)
+  plan                 UserPlan            @default(FREE)
+  creditsTotal         Int                 @default(0)
+  creditsUsed          Int                 @default(0)
+  creditsRemaining     Int                 @default(0)
+  monthlyLimit         Int                 @default(0)
+  monthlyUsed          Int                 @default(0)
+  billingStatus        BillingStatus       @default(ACTIVE)
+  stripeCustomerId     String?             @unique
+  preferredAiProvider  String?
+  allowPremiumAi       Boolean             @default(false)
+  apiKey               String?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  transactions         CreditTransaction[]
+  purchaseTransactions Transaction[]
+  creditUsages         CreditUsage[]
+  aiUsageLogs          AiUsageLog[]
+  subscriptions        Subscription[]
+}
+
+model Transaction {
+  id              String            @id @default(cuid())
+  user            User              @relation(fields: [userId], references: [id])
+  userId          String
+  stripeSessionId String            @unique
+  amount          Int
+  tokens          Int
+  status          TransactionStatus @default(PENDING)
+  metadata        Json?
+  createdAt       DateTime          @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model CreditUsage {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+  amount    Int
+  reason    String
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
 }
 
 model CreditTransaction {
@@ -86,49 +115,49 @@ model CreditTransaction {
 }
 
 model AiUsageLog {
-  id                   String       @id @default(cuid())
-  user                 User         @relation(fields: [userId], references: [id])
-  userId               String
-  provider             String
-  model                String
-  action               CreditAction
-  quality              String?
-  estimatedInputTokens Int?
-  estimatedOutputTokens Int?
-  estimatedCost        Float?
-  creditsCharged       Int
-  success              Boolean      @default(true)
-  errorMessage         String?
-  createdAt            DateTime     @default(now())
-}
-
-model Subscription {
   id                    String       @id @default(cuid())
   user                  User         @relation(fields: [userId], references: [id])
   userId                String
-  stripeSubscriptionId  String       @unique
-  priceId               String
-  plan                  UserPlan
-  status                BillingStatus
-  currentPeriodStart    DateTime?
-  currentPeriodEnd      DateTime?
+  provider              String
+  model                 String
+  action                CreditAction
+  quality               String?
+  estimatedInputTokens  Int?
+  estimatedOutputTokens Int?
+  estimatedCost         Float?
+  creditsCharged        Int
+  success               Boolean      @default(true)
+  errorMessage          String?
   createdAt             DateTime     @default(now())
-  updatedAt             DateTime     @updatedAt
+}
+
+model Subscription {
+  id                   String        @id @default(cuid())
+  user                 User          @relation(fields: [userId], references: [id])
+  userId               String
+  stripeSubscriptionId String        @unique
+  priceId              String
+  plan                 UserPlan
+  status               BillingStatus
+  currentPeriodStart   DateTime?
+  currentPeriodEnd     DateTime?
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
 }
 
 model ProductPlan {
-  id               String   @id @default(cuid())
-  slug             String   @unique
-  name             String
-  monthlyPriceCents Int
+  id                  String   @id @default(cuid())
+  slug                String   @unique
+  name                String
+  monthlyPriceCents   Int
   includedGenerations Int
-  includedCredits  Int
-  allowPremiumAi   Boolean  @default(false)
-  maxProjects      Int      @default(1)
-  stripePriceId    String?  @unique
-  description      String
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  includedCredits     Int
+  allowPremiumAi      Boolean  @default(false)
+  maxProjects         Int      @default(1)
+  stripePriceId       String?  @unique
+  description         String
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 }
 
 model CreditPack {

@@ -20,30 +20,30 @@ function buildPrompt(tool: CreditTool, input: any) {
   const label = CREDIT_TOOL_LABELS[tool];
 
   return `
-Tu es Rudyo Video Studio IA, un assistant de production video professionnel.
+Tu es Rudyo Video Studio IA, un assistant de production vidéo professionnel.
 
 Mission :
-Creer une reponse complete pour le modele suivant :
+Créer une réponse complète pour le modèle suivant :
 ${label}
 
 Informations utilisateur :
 ${JSON.stringify(input, null, 2)}
 
 Consignes :
-- Repondre en francais clair.
-- Structurer la reponse avec des titres.
-- Donner un resultat directement exploitable.
-- Adapter la reponse au type de video demande.
-- Si le contenu concerne une video, proposer des plans, scenes, textes ecran, ambiance, transitions et prompts video IA.
-- Ne pas mentionner les cles API.
+- Répondre en français clair.
+- Structurer la réponse avec des titres.
+- Donner un résultat directement exploitable.
+- Adapter la réponse au type de vidéo demandé.
+- Si le contenu concerne une vidéo, proposer des plans, scènes, textes écran, ambiance, transitions et prompts vidéo IA.
+- Ne pas mentionner les clés API.
 - Ne pas dire que tu es une IA.
 
 Format attendu :
-1. Resume du projet
-2. Proposition creative
-3. Structure detaillee
+1. Résumé du projet
+2. Proposition créative
+3. Structure détaillée
 4. Recommandations de production
-5. Prompts ou textes utilisables si necessaire
+5. Prompts ou textes utilisables si nécessaire
 `;
 }
 
@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
         {
           success: false,
           error:
-            "Utilisateur non authentifie. Connectez-vous ou creez un compte pour utiliser Rudyo Video Studio IA.",
+            "Utilisateur non authentifié. Connectez-vous ou créez un compte pour utiliser Rudyo Video Studio IA.",
         },
         { status: 401 },
       );
@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          error: "Modele de generation invalide.",
+          error: "Modèle de génération invalide.",
         },
         { status: 400 },
       );
@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
       userId: user.id,
       action: tool,
       amount: creditCost,
-      description: `Generation Rudyo : ${CREDIT_TOOL_LABELS[tool]}`,
+      description: `Génération Rudyo : ${CREDIT_TOOL_LABELS[tool]}`,
       metadata: { tool },
     });
     reservationId = reservation.id;
@@ -131,7 +131,7 @@ export async function POST(request: NextRequest) {
         success: false,
         error:
           error?.message ||
-          "Erreur lors de la generation IA. Aucun contenu n'a ete produit.",
+          "Erreur lors de la génération IA. Aucun contenu n'a été produit.",
       },
       { status: 500 },
     );

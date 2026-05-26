@@ -283,6 +283,7 @@ export async function getOrCreateUserByEmail(email: string, name?: string) {
     data: {
       email: normalizedEmail,
       name: cleanedName || undefined,
+      credits: initialCredits,
       plan: "FREE",
       billingStatus: "ACTIVE",
       creditsTotal: initialCredits,

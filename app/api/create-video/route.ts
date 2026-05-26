@@ -6,7 +6,6 @@ import { promisify } from "util";
 import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
 import ffprobeInstaller from "@ffprobe-installer/ffprobe";
 import { NextRequest, NextResponse } from "next/server";
-import sharp from "sharp";
 import { getCurrentUser } from "@/lib/auth";
 import {
   isCloudStorageEnabled,
@@ -14,6 +13,11 @@ import {
   toClientFileRef,
 } from "@/lib/storage";
 import type { StoryboardPlan, StoryboardResult } from "@/lib/types";
+import {
+  renderStoryboardSlidePng,
+  SLIDE_HEIGHT,
+  SLIDE_WIDTH,
+} from "@/lib/video-slide-renderer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,8 +25,6 @@ export const dynamic = "force-dynamic";
 const execFileAsync = promisify(execFile);
 const ffmpegPath = ffmpegInstaller.path;
 const ffprobePath = ffprobeInstaller.path;
-const SLIDE_WIDTH = 1920;
-const SLIDE_HEIGHT = 1080;
 const MIN_VIDEO_BYTES = 100 * 1024;
 
 type CreateVideoBody = {
@@ -51,187 +53,11 @@ function sanitizeFileName(value: string) {
     .slice(0, 60);
 }
 
-function escapeXml(value: string) {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
 function normalizeText(value?: string | null) {
   return (value || "")
+    .normalize("NFC")
     .replace(/\s+/g, " ")
     .trim();
-}
-
-function wrapText(text: string, maxChars: number, maxLines: number) {
-  const words = normalizeText(text).split(" ").filter(Boolean);
-  const lines: string[] = [];
-  let current = "";
-
-  for (const word of words) {
-    const next = current ? `${current} ${word}` : word;
-    if (next.length > maxChars && current) {
-      lines.push(current);
-      current = word;
-    } else {
-      current = next;
-    }
-
-    if (lines.length === maxLines) {
-      break;
-    }
-  }
-
-  if (current && lines.length < maxLines) {
-    lines.push(current);
-  }
-
-  if (words.join(" ").length > lines.join(" ").length && lines.length > 0) {
-    lines[lines.length - 1] = `${lines[lines.length - 1].replace(/\.*$/, "")}...`;
-  }
-
-  return lines.length > 0 ? lines : ["A completer avec le contenu du storyboard."];
-}
-
-function svgTextBlock(
-  lines: string[],
-  x: number,
-  y: number,
-  options: {
-    size: number;
-    color: string;
-    weight?: number;
-    lineHeight?: number;
-  },
-) {
-  const lineHeight = options.lineHeight ?? Math.round(options.size * 1.35);
-  return lines
-    .map(
-      (line, index) =>
-        `<text x="${x}" y="${y + index * lineHeight}" fill="${options.color}" font-size="${options.size}" font-weight="${options.weight ?? 500}">${escapeXml(line)}</text>`,
-    )
-    .join("");
-}
-
-function pedagogicalDialogue(plan: StoryboardPlanWithDialogue) {
-  const dialogue = normalizeText(plan.dialogue);
-  if (dialogue) {
-    return dialogue;
-  }
-
-  const description = normalizeText(plan.description);
-  return `Conseiller : "Si je reformule, votre priorite est de ${description.toLowerCase()}." Usager : "Oui, j'ai besoin d'un plan clair pour avancer."`;
-}
-
-function pedagogicalObjective(plan: StoryboardPlanWithDialogue, index: number) {
-  const objective = normalizeText(plan.objectif_pedagogique);
-  if (objective) {
-    return objective;
-  }
-
-  const defaults = [
-    "Installer un cadre d'accueil rassurant et clarifier la demande de l'usager.",
-    "Identifier les freins, les ressources et les attentes avec des questions ouvertes.",
-    "Valoriser les competences et construire un plan d'action realiste.",
-  ];
-
-  return defaults[index] ?? "Transformer l'analyse de la situation en prochaine action concrete.";
-}
-
-function planTitle(plan: StoryboardPlanWithDialogue, index: number) {
-  const explicit = normalizeText(plan.titre_etape || plan.texte_ecran);
-  if (explicit) {
-    return explicit;
-  }
-
-  const titles = [
-    "Accueil et cadrage de l'entretien",
-    "Analyse de la demande et des freins",
-    "Valorisation des competences et plan d'action",
-  ];
-
-  return titles[index] ?? `Etape pedagogique ${index + 1}`;
-}
-
-function renderStoryboardSlideSvg(
-  plan: StoryboardPlanWithDialogue,
-  index: number,
-  project: StoryboardResult,
-) {
-  const stepTitle = planTitle(plan, index);
-  const description = normalizeText(plan.description || project.resume);
-  const camera = normalizeText(plan.camera);
-  const screenText = normalizeText(plan.texte_ecran);
-  const transition = normalizeText(plan.transition);
-  const dialogue = pedagogicalDialogue(plan);
-  const objective = pedagogicalObjective(plan, index);
-
-  return `
-<svg width="${SLIDE_WIDTH}" height="${SLIDE_HEIGHT}" viewBox="0 0 ${SLIDE_WIDTH} ${SLIDE_HEIGHT}" xmlns="http://www.w3.org/2000/svg">
-  <rect width="${SLIDE_WIDTH}" height="${SLIDE_HEIGHT}" fill="#020617"/>
-  <rect x="72" y="58" width="1776" height="92" rx="20" fill="#0F172A"/>
-  <rect x="96" y="88" width="10" height="34" rx="5" fill="#06B6D4"/>
-  <text x="126" y="113" fill="#CBD5E1" font-family="Arial, Helvetica, sans-serif" font-size="30" font-weight="700">Rudyo Video Studio IA — Formation CIP</text>
-  <text x="1510" y="113" fill="#10B981" font-family="Arial, Helvetica, sans-serif" font-size="30" font-weight="800">Plan ${index + 1}</text>
-
-  <rect x="72" y="186" width="1776" height="758" rx="28" fill="#0F172A"/>
-  <rect x="72" y="186" width="1776" height="8" fill="#06B6D4"/>
-  <circle cx="1580" cy="276" r="122" fill="#06B6D4" opacity="0.10"/>
-  <circle cx="1718" cy="762" r="154" fill="#10B981" opacity="0.09"/>
-
-  <text x="120" y="266" fill="#06B6D4" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="800">Projet</text>
-  ${svgTextBlock(wrapText(project.titre, 55, 2), 120, 318, {
-    size: 54,
-    color: "#FFFFFF",
-    weight: 900,
-    lineHeight: 66,
-  })}
-
-  <rect x="120" y="448" width="760" height="214" rx="20" fill="#020617" opacity="0.78"/>
-  <text x="154" y="504" fill="#10B981" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="800">Objectif pédagogique</text>
-  ${svgTextBlock(wrapText(objective, 50, 3), 154, 560, {
-    size: 34,
-    color: "#FFFFFF",
-    weight: 700,
-    lineHeight: 46,
-  })}
-
-  <rect x="920" y="270" width="860" height="392" rx="20" fill="#020617" opacity="0.78"/>
-  <text x="956" y="328" fill="#06B6D4" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="800">${escapeXml(stepTitle)}</text>
-  <text x="956" y="388" fill="#CBD5E1" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="700">Description visuelle</text>
-  ${svgTextBlock(wrapText(description, 58, 4), 956, 438, {
-    size: 30,
-    color: "#FFFFFF",
-    weight: 500,
-    lineHeight: 42,
-  })}
-
-  <rect x="120" y="700" width="790" height="172" rx="20" fill="#020617" opacity="0.78"/>
-  <text x="154" y="754" fill="#06B6D4" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="800">Dialogue conseillé</text>
-  ${svgTextBlock(wrapText(dialogue, 58, 3), 154, 804, {
-    size: 27,
-    color: "#CBD5E1",
-    weight: 600,
-    lineHeight: 37,
-  })}
-
-  <rect x="950" y="700" width="830" height="172" rx="20" fill="#020617" opacity="0.78"/>
-  <text x="986" y="754" fill="#10B981" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="800">Texte à l'écran</text>
-  ${svgTextBlock(wrapText(screenText || stepTitle, 58, 2), 986, 804, {
-    size: 30,
-    color: "#FFFFFF",
-    weight: 800,
-    lineHeight: 42,
-  })}
-  <text x="986" y="884" fill="#CBD5E1" font-family="Arial, Helvetica, sans-serif" font-size="24">Caméra : ${escapeXml(camera || "plan moyen, échange face à face")}</text>
-  <text x="986" y="920" fill="#CBD5E1" font-family="Arial, Helvetica, sans-serif" font-size="24">Transition : ${escapeXml(transition || "fondu sobre")}</text>
-
-  <rect x="72" y="972" width="1776" height="58" rx="18" fill="#0F172A"/>
-  <text x="110" y="1010" fill="#CBD5E1" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="700">Durée : ${escapeXml(plan.duree || "8 secondes")}</text>
-  <text x="1485" y="1010" fill="#10B981" font-family="Arial, Helvetica, sans-serif" font-size="25" font-weight="800">${escapeXml(plan.type_media)} · ${escapeXml(plan.statut)}</text>
-</svg>`;
 }
 
 async function renderStoryboardSlide(
@@ -242,10 +68,7 @@ async function renderStoryboardSlide(
 ) {
   const fileName = `plan-${String(index + 1).padStart(2, "0")}.png`;
   const outputPath = path.join(tmpDir, fileName);
-  const svg = renderStoryboardSlideSvg(plan, index, project);
-
-  await sharp(Buffer.from(svg)).png().toFile(outputPath);
-  return outputPath;
+  return renderStoryboardSlidePng(plan, index, project, outputPath);
 }
 
 function parseDurationSeconds(value: string | undefined, fallback: number) {
@@ -370,7 +193,7 @@ export async function POST(req: NextRequest) {
         {
           success: false,
           error:
-            "Utilisateur non authentifie. Connectez-vous avant de creer une video.",
+            "Utilisateur non authentifié. Connectez-vous avant de créer une vidéo.",
         },
         { status: 401 },
       );
@@ -383,7 +206,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          error: "Storyboard manquant. Generez un storyboard avant de creer la video.",
+          error: "Storyboard manquant. Générez un storyboard avant de créer la vidéo.",
         },
         { status: 400 },
       );
@@ -478,12 +301,13 @@ export async function POST(req: NextRequest) {
     const outputName = path.basename(outputPath);
 
     if (isCloudStorageEnabled()) {
+      const storageKey = `export/${user.id}/${outputName}`;
       const storedVideo = await putStorageBuffer(
-        `export/${outputName}`,
+        storageKey,
         outputBuffer,
         { contentType: "video/mp4" },
       );
-      videoUrl = toClientFileRef(`export/${outputName}`, storedVideo.url);
+      videoUrl = toClientFileRef(storageKey, storedVideo.url);
     } else if (process.env.VERCEL === "1") {
       dataUrl = `data:video/mp4;base64,${outputBuffer.toString("base64")}`;
     } else {

@@ -19,34 +19,33 @@ export type SubscriptionPlanDefinition = {
 };
 
 const CREDIT_PACKS: Record<string, CreditPackDefinition> = {
-  rudyo_50: {
-    id: "rudyo_50",
-    name: "Pack Decouverte",
-    credits: 50,
-    amount: 900,
-    description:
-      "50 credits Rudyo pour tester storyboards, scripts courts et prompts.",
+  starter: {
+    id: "starter",
+    name: "Starter",
+    credits: 100,
+    amount: 500,
+    description: "100 tokens pour tester les generations IA essentielles.",
   },
-  rudyo_200: {
-    id: "rudyo_200",
-    name: "Pack Createur",
-    credits: 200,
-    amount: 2900,
-    description: "200 credits Rudyo pour preparer plusieurs projets video.",
+  creator: {
+    id: "creator",
+    name: "Creator",
+    credits: 500,
+    amount: 1900,
+    description: "500 tokens pour produire plusieurs projets courts.",
   },
-  rudyo_700: {
-    id: "rudyo_700",
-    name: "Pack Pro",
-    credits: 700,
-    amount: 7900,
-    description: "700 credits Rudyo pour dossiers, exports et packs complets.",
+  pro: {
+    id: "pro",
+    name: "Pro",
+    credits: 1500,
+    amount: 4900,
+    description: "1 500 tokens pour des workflows video avances.",
   },
-  rudyo_2000: {
-    id: "rudyo_2000",
-    name: "Pack Studio",
-    credits: 2000,
-    amount: 19900,
-    description: "2 000 credits Rudyo pour une production video intensive.",
+  studio: {
+    id: "studio",
+    name: "Studio",
+    credits: 5000,
+    amount: 14900,
+    description: "5 000 tokens pour une production IA intensive.",
   },
 };
 
@@ -83,6 +82,16 @@ export function getStripeClient() {
     throw new Error("STRIPE_SECRET_KEY est manquante");
   }
 
+  if (
+    process.env.NODE_ENV !== "production" &&
+    secretKey.startsWith("sk_live_") &&
+    process.env.ALLOW_STRIPE_LIVE_IN_DEV !== "true"
+  ) {
+    throw new Error(
+      "STRIPE_SECRET_KEY live détectée en développement. Utilisez une clé sk_test_ pour tester Stripe Checkout.",
+    );
+  }
+
   return new Stripe(secretKey, {
     apiVersion: "2026-04-22.dahlia",
   });
@@ -98,6 +107,15 @@ export function getSubscriptionPlan(productId: string) {
 
 export function getAllCreditPacks() {
   return Object.values(CREDIT_PACKS);
+}
+
+export function getFirstPurchaseBonusTokens() {
+  const configured = Number.parseInt(
+    process.env.FIRST_PURCHASE_BONUS_TOKENS ?? "25",
+    10,
+  );
+
+  return Number.isFinite(configured) && configured > 0 ? configured : 0;
 }
 
 export function getAllSubscriptionPlans() {
@@ -116,7 +134,7 @@ export function getStripeProductDescription(productId: string) {
   return (
     getCreditPack(productId)?.description ??
     getSubscriptionPlan(productId)?.description ??
-    "Credits internes Rudyo."
+    "Crédits internes Rudyo."
   );
 }
 

@@ -42,6 +42,7 @@ async function main() {
     where: { email },
     update: {
       name,
+      credits,
       creditsTotal: credits,
       creditsRemaining: credits,
       monthlyLimit: credits,
@@ -50,6 +51,7 @@ async function main() {
     create: {
       email,
       name,
+      credits,
       plan: "FREE",
       billingStatus: "ACTIVE",
       creditsTotal: credits,

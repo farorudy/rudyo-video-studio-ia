@@ -1,12 +1,26 @@
 import { PrismaClient } from "@prisma/client";
 
 declare global {
-  // eslint-disable-next-line no-var
   var prisma: PrismaClient | undefined;
 }
 
-export const prisma = global.prisma || new PrismaClient();
-
-if (process.env.NODE_ENV !== "production") {
-  global.prisma = prisma;
+function createPrismaClient() {
+  return new PrismaClient();
 }
+
+export function getPrisma() {
+  if (!global.prisma) {
+    global.prisma = createPrismaClient();
+  }
+
+  return global.prisma;
+}
+
+export const prisma = new Proxy({} as PrismaClient, {
+  get(_target, prop) {
+    const client = getPrisma();
+    const value = Reflect.get(client, prop, client);
+
+    return typeof value === "function" ? value.bind(client) : value;
+  },
+});

@@ -25,10 +25,29 @@ Flux recommandé sans IA :
 
 ```bash
 npm install
-npm run dev
+npm run setup:local
+npm run dev:local
 ```
 
 Puis ouvrir `http://localhost:3000`.
+
+Vérification rapide :
+
+```bash
+npm run check:local
+curl http://localhost:3000/api/health
+```
+
+Le mode local active aussi `USE_MOCK_STORYBOARD=true` pour tester le flux sans clé OpenAI. La génération MP4 utilise FFmpeg et écrit les vidéos dans `media/export`.
+
+Pour utiliser les crédits de l'API OpenAI en local :
+
+```bash
+npm run setup:openai
+npm run dev:local
+```
+
+Cette commande réutilise `OPENAI_API_KEY` depuis l'environnement local sans afficher la clé, force `AI_PROVIDER=openai` et désactive le storyboard mock.
 
 ## Stockage cloud (production)
 

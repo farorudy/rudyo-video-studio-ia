@@ -125,7 +125,7 @@ function computeEnergyScore(clipDef) {
  *   verse/bridge → coupes moyennes (4-5 s)
  *   chorus       → coupes rapides (2.5-3 s)
  */
-function buildMusicSchedule(audioDuration, nClips) {
+function buildMusicSchedule(audioDuration) {
   const structure = [
     { id: "intro",   pct: 0.10, pace: "slow",   targetSec: 7 },
     { id: "verse1",  pct: 0.20, pace: "medium",  targetSec: 4.5 },
@@ -187,7 +187,7 @@ function assignClipsToSlots(slots, clipsJson, planFiles) {
   }
 
   // Compléter avec les fichiers non couverts par le storyboard
-  planFiles.forEach((f, idx) => {
+  planFiles.forEach((f) => {
     if (!storyboardOrder.find((e) => e.file === f)) {
       storyboardOrder.push({ file: f, energyScore: 0, def: null });
     }
@@ -226,14 +226,14 @@ function assignClipsToSlots(slots, clipsJson, planFiles) {
     return entry.file;
   }
 
-  return slots.map((slot, i) => ({
-    ...slot,
-    file: pickNext(slot.wantsEnergy),
-    fullPath: path.join(PLANS_DIR, pickNext(slot.wantsEnergy) /* will be overwritten */),
-  })).map((slot) => ({
-    ...slot,
-    fullPath: path.join(PLANS_DIR, slot.file),
-  }));
+  return slots.map((slot) => {
+    const file = pickNext(slot.wantsEnergy);
+    return {
+      ...slot,
+      file,
+      fullPath: path.join(PLANS_DIR, file),
+    };
+  });
 }
 
 // ── 6. Construire le filter_complex FFmpeg ────────────────────────────────────
@@ -465,7 +465,7 @@ function main() {
   const clipsJson = loadClipsJson();
 
   // Construire le planning musical
-  const slots = buildMusicSchedule(audioDuration, planFiles.length);
+  const slots = buildMusicSchedule(audioDuration);
 
   // Assigner les clips aux slots
   const rawEntries = assignClipsToSlots(slots, clipsJson, planFiles);

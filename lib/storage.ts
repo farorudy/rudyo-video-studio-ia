@@ -16,7 +16,19 @@ export type StorageItem = {
 const MEDIA_ROOT = path.join(process.cwd(), "media");
 
 function normalizeKey(key: string) {
-  return key.replace(/^\/+/, "").replace(/\\/g, "/");
+  const normalized = key.replace(/^\/+/, "").replace(/\\/g, "/");
+  const segments = normalized.split("/");
+
+  if (
+    !normalized ||
+    normalized.startsWith("../") ||
+    normalized.includes("/../") ||
+    segments.some((segment) => segment === ".." || segment === "")
+  ) {
+    throw new Error("Chemin de stockage invalide.");
+  }
+
+  return normalized;
 }
 
 function cloudPrefix() {
@@ -34,7 +46,13 @@ function fromCloudPathname(pathname: string) {
 }
 
 function toLocalPath(key: string) {
-  return path.join(MEDIA_ROOT, normalizeKey(key));
+  const localPath = path.resolve(MEDIA_ROOT, normalizeKey(key));
+
+  if (!localPath.startsWith(`${MEDIA_ROOT}${path.sep}`)) {
+    throw new Error("Chemin de stockage hors media interdit.");
+  }
+
+  return localPath;
 }
 
 export function isCloudStorageEnabled() {

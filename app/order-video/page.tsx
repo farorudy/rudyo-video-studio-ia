@@ -4,7 +4,7 @@ import OrderVideoForm from "@/app/components/OrderVideoForm";
 
 const services = [
   "Flyer anime : 49 a 99 EUR",
-  "Video promotionnelle : 149 a 399 EUR",
+  "Vidéo promotionnelle : 149 à 399 EUR",
   "Clip lyrics : 199 a 499 EUR",
   "Clip IA complet : 499 a 1 500 EUR",
   "Capsule de formation : 149 a 499 EUR",

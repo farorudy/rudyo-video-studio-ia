@@ -1,7 +1,17 @@
 import Link from "next/link";
 import CheckoutButton from "@/app/components/CheckoutButton";
 import Navigation from "@/app/components/Navigation";
-import { getAllCreditPacks, getAllSubscriptionPlans } from "@/lib/stripe";
+import {
+  MODEL_CREDIT_CATEGORIES,
+  MODEL_CREDIT_CATEGORY_LABELS,
+  getModelCreditRatesByCategory,
+  type ModelCreditUnit,
+} from "@/lib/model-credit-rates";
+import {
+  getAllCreditPacks,
+  getAllSubscriptionPlans,
+  getFirstPurchaseBonusTokens,
+} from "@/lib/stripe";
 
 const serviceOffers = [
   {
@@ -11,7 +21,7 @@ const serviceOffers = [
     included: "Animation courte, texte, musique simple, formats reseaux.",
   },
   {
-    title: "Video promotionnelle",
+    title: "Vidéo promotionnelle",
     price: "149 a 399 EUR",
     delivery: "5 a 7 jours",
     included: "Script, montage, voix off IA possible et declinaisons.",
@@ -38,9 +48,17 @@ function formatEuros(amount: number) {
   }).format(amount / 100);
 }
 
+const unitLabels: Record<ModelCreditUnit, string> = {
+  "per image": "par image",
+  "per second": "par seconde",
+  "per request": "par requete",
+  "per shot": "par plan",
+};
+
 export default function PricingPage() {
   const packs = getAllCreditPacks();
   const plans = getAllSubscriptionPlans();
+  const firstPurchaseBonus = getFirstPurchaseBonusTokens();
 
   return (
     <main className="min-h-screen bg-[#020617] text-white">
@@ -54,7 +72,7 @@ export default function PricingPage() {
             Commencez gratuitement, payez quand le projet prend de la valeur.
           </h1>
           <p className="mt-5 max-w-3xl text-lg leading-8 text-slate-300">
-            Utilisez des credits pour generer des livrables video, prenez un
+            Achetez des tokens pour generer des livrables video, prenez un
             abonnement si vous produisez regulierement, ou confiez la realisation
             a Farozik.
           </p>
@@ -75,18 +93,35 @@ export default function PricingPage() {
         </div>
       </section>
 
-      <section className="mx-auto grid max-w-7xl gap-5 px-4 pb-14 md:grid-cols-4 md:px-8">
+      <section className="mx-auto max-w-7xl px-4 pb-14 md:px-8">
+        <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.24em] text-cyan-300">
+              Packs tokens
+            </p>
+            <h2 className="mt-2 text-3xl font-black md:text-5xl">
+              Recharge securisee par Stripe Checkout.
+            </h2>
+          </div>
+          {firstPurchaseBonus > 0 ? (
+            <p className="max-w-sm rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-4 py-3 text-sm font-semibold text-emerald-100">
+              Bonus premier achat : +{firstPurchaseBonus} tokens ajoutes par le
+              webhook apres paiement.
+            </p>
+          ) : null}
+        </div>
+        <div className="grid gap-5 md:grid-cols-4">
         {packs.map((pack) => (
           <div
             key={pack.id}
-            className="rounded-3xl border border-slate-800 bg-slate-950 p-6"
+            className="group rounded-lg border border-slate-800 bg-slate-950 p-6 transition duration-200 hover:-translate-y-1 hover:border-cyan-400/80 hover:shadow-xl hover:shadow-cyan-950/20"
           >
             <h2 className="text-2xl font-black">{pack.name}</h2>
             <p className="mt-3 text-4xl font-black text-cyan-300">
               {formatEuros(pack.amount)}
             </p>
             <p className="mt-2 font-bold text-white">
-              {pack.credits.toLocaleString("fr-FR")} credits
+              {pack.credits.toLocaleString("fr-FR")} tokens
             </p>
             <p className="mt-4 min-h-20 text-sm leading-6 text-slate-300">
               {pack.description}
@@ -96,6 +131,86 @@ export default function PricingPage() {
             </CheckoutButton>
           </div>
         ))}
+        </div>
+      </section>
+
+      <section className="border-y border-slate-800 bg-slate-950/70">
+        <div className="mx-auto max-w-7xl px-4 py-14 md:px-8">
+          <div className="mb-8 max-w-4xl">
+            <p className="text-sm font-semibold uppercase tracking-[0.24em] text-cyan-300">
+              Catalogue credits IA
+            </p>
+            <h2 className="mt-3 text-3xl font-black md:text-5xl">
+              Coût par modèle, résolution et unité.
+            </h2>
+            <p className="mt-4 text-base leading-7 text-slate-300">
+              Cette grille sert de référence pour les générations image, vidéo,
+              avatar, audio et analyses. Les modèles facturés à la seconde
+              respectent leur durée minimale indiquée.
+            </p>
+          </div>
+
+          <div className="space-y-8">
+            {MODEL_CREDIT_CATEGORIES.map((category) => {
+              const rates = getModelCreditRatesByCategory(category);
+
+              return (
+                <div key={category}>
+                  <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                    <h3 className="text-2xl font-black text-white">
+                      {MODEL_CREDIT_CATEGORY_LABELS[category]}
+                    </h3>
+                    <p className="text-sm font-semibold text-slate-400">
+                      {rates.length} modèles / variantes
+                    </p>
+                  </div>
+
+                  <div className="overflow-x-auto border border-slate-800">
+                    <table className="min-w-[760px] w-full border-collapse bg-slate-950 text-left text-sm">
+                      <thead className="bg-slate-900 text-xs uppercase tracking-[0.16em] text-slate-400">
+                        <tr>
+                          <th className="px-4 py-3 font-bold">Modèle</th>
+                          <th className="px-4 py-3 font-bold">Résolution</th>
+                          <th className="px-4 py-3 text-right font-bold">
+                            Crédits
+                          </th>
+                          <th className="px-4 py-3 font-bold">Unité</th>
+                          <th className="px-4 py-3 font-bold">
+                            Minimum requis
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800">
+                        {rates.map((rate) => (
+                          <tr
+                            key={`${rate.category}-${rate.model}-${rate.resolution}`}
+                            className="text-slate-200"
+                          >
+                            <td className="px-4 py-3 font-semibold text-white">
+                              {rate.model}
+                            </td>
+                            <td className="px-4 py-3 text-slate-300">
+                              {rate.resolution}
+                            </td>
+                            <td className="px-4 py-3 text-right font-black text-cyan-300">
+                              {rate.credits}
+                            </td>
+                            <td className="px-4 py-3 text-slate-300">
+                              {unitLabels[rate.unit]}
+                            </td>
+                            <td className="px-4 py-3 text-slate-300">
+                              {rate.requirement}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </section>
 
       <section className="border-y border-slate-800 bg-slate-950/70">

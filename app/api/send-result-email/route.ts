@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Resend } from "resend";
-import { getCurrentUser, isValidEmail, normalizeEmail } from "@/lib/auth";
+import { getCurrentUser } from "@/lib/auth";
+import {
+  beginIdempotentRequest,
+  enforceApiRateLimit,
+  finishIdempotentRequest,
+  readJsonWithLimit,
+  requireIdempotencyKey,
+} from "@/lib/request-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,9 +47,10 @@ function isAllowedVideoUrl(value: string, req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  let idempotencyId: string | null = null;
   try {
     const user = await getCurrentUser(req);
-    if (!user) {
+    if (!user || user.localSession) {
       return NextResponse.json(
         {
           success: false,
@@ -52,17 +60,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const body = (await req.json()) as SendResultEmailBody;
-    const to = normalizeEmail(body.to || user.email);
-    const videoUrl = body.videoUrl?.trim();
-    const title = body.title?.trim() || "Video Rudyo";
-
-    if (!isValidEmail(to)) {
-      return NextResponse.json(
-        { success: false, error: "Adresse email destinataire invalide." },
-        { status: 400 },
-      );
+    await enforceApiRateLimit(req, "send-result-email", user.id, 3, 60 * 60_000);
+    const key = requireIdempotencyKey(req);
+    const requestState = await beginIdempotentRequest("send-result-email", user.id, key);
+    idempotencyId = requestState.record.id;
+    if (!requestState.fresh) {
+      if (requestState.record.response && requestState.record.responseCode) {
+        return NextResponse.json(requestState.record.response, { status: requestState.record.responseCode });
+      }
+      return NextResponse.json({ success: false, error: "Envoi déjà en cours." }, { status: 409 });
     }
+
+    const body = await readJsonWithLimit<SendResultEmailBody>(req, 16 * 1024);
+    const to = user.email;
+    const videoUrl = body.videoUrl?.trim();
+    const title = body.title?.trim().slice(0, 200) || "Video Rudyo";
 
     if (!videoUrl) {
       return NextResponse.json(
@@ -121,21 +133,25 @@ export async function POST(req: NextRequest) {
       text: `Votre video Rudyo est prete: ${videoUrl}\nApplication: ${baseUrl}`,
     });
 
-    return NextResponse.json({
+    const response = {
       success: true,
       id: result.data?.id,
       to,
-    });
+    };
+    await finishIdempotentRequest(idempotencyId, 200, response);
+    return NextResponse.json(response);
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Erreur email inconnue.";
     console.error("[rudyo-email] erreur", { message });
 
-    return NextResponse.json(
-      {
+    const response = {
         success: false,
-        error: `Impossible d'envoyer l'email : ${message}`,
-      },
+        error: message.includes("Idempotency-Key") ? message : "Impossible d'envoyer l'email.",
+      };
+    if (idempotencyId) await finishIdempotentRequest(idempotencyId, 500, response).catch(() => undefined);
+    return NextResponse.json(
+      response,
       { status: 500 },
     );
   }

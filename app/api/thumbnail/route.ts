@@ -1,9 +1,20 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { readStorageBuffer } from "@/lib/storage";
+import { getCurrentUser } from "@/lib/auth";
+import { enforceApiRateLimit } from "@/lib/request-security";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const buffer = await readStorageBuffer("export/thumbnail.jpg");
+    const user = await getCurrentUser(req);
+    if (!user || user.localSession) {
+      return NextResponse.json({ error: "Authentification vérifiée requise." }, { status: 401 });
+    }
+    try {
+      await enforceApiRateLimit(req, "thumbnail-read", user.id, 60, 60_000);
+    } catch {
+      return NextResponse.json({ error: "Trop de requêtes." }, { status: 429 });
+    }
+    const buffer = await readStorageBuffer(`export/${user.id}/thumbnail.jpg`);
 
     if (!buffer) {
       throw new Error("Miniature introuvable");

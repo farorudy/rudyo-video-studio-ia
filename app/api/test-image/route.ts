@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getCurrentUser } from "@/lib/auth";
+import { enforceApiRateLimit, withTimeout } from "@/lib/request-security";
 
 function buildFallbackSvg(prompt: string, width: string, height: string) {
   const escapedPrompt = prompt
@@ -32,12 +34,27 @@ function buildFallbackSvg(prompt: string, width: string, height: string) {
 }
 
 export async function GET(req: NextRequest) {
-  const prompt = req.nextUrl.searchParams.get("prompt")?.trim();
-  const width = req.nextUrl.searchParams.get("width")?.trim() || "1280";
-  const height = req.nextUrl.searchParams.get("height")?.trim() || "720";
-  const seed = req.nextUrl.searchParams.get("seed")?.trim() || "1";
+  const user = await getCurrentUser(req);
+  if (!user || user.localSession) {
+    return NextResponse.json({ success: false, error: "Authentification vérifiée requise." }, { status: 401 });
+  }
+  try {
+    await enforceApiRateLimit(req, "test-image", user.id, 10, 60_000);
+  } catch {
+    return NextResponse.json({ success: false, error: "Trop de requêtes." }, { status: 429 });
+  }
 
-  if (!prompt) {
+  const prompt = req.nextUrl.searchParams.get("prompt")?.trim();
+  const widthNumber = Number(req.nextUrl.searchParams.get("width") || 1280);
+  const heightNumber = Number(req.nextUrl.searchParams.get("height") || 720);
+  const seedNumber = Number(req.nextUrl.searchParams.get("seed") || 1);
+
+  if (
+    !prompt || prompt.length > 2_000 ||
+    !Number.isInteger(widthNumber) || widthNumber < 256 || widthNumber > 1920 ||
+    !Number.isInteger(heightNumber) || heightNumber < 256 || heightNumber > 1080 ||
+    !Number.isInteger(seedNumber) || seedNumber < 0 || seedNumber > 2_147_483_647
+  ) {
     return NextResponse.json(
       {
         success: false,
@@ -46,6 +63,9 @@ export async function GET(req: NextRequest) {
       { status: 400 },
     );
   }
+  const width = String(widthNumber);
+  const height = String(heightNumber);
+  const seed = String(seedNumber);
 
   const upstreamUrl =
     `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}` +
@@ -55,15 +75,20 @@ export async function GET(req: NextRequest) {
     "&nologo=true";
 
   try {
-    const response = await fetch(upstreamUrl, {
-      cache: "no-store",
-    });
+    const response = await withTimeout(
+      fetch(upstreamUrl, { cache: "no-store" }),
+      15_000,
+      "Le service d’image a expiré.",
+    );
 
     if (!response.ok) {
       throw new Error(`Pollinations indisponible (${response.status}).`);
     }
 
+    const declared = Number(response.headers.get("content-length") || 0);
+    if (declared > 10 * 1024 * 1024) throw new Error("Image trop volumineuse.");
     const buffer = Buffer.from(await response.arrayBuffer());
+    if (buffer.byteLength > 10 * 1024 * 1024) throw new Error("Image trop volumineuse.");
 
     return new NextResponse(buffer, {
       headers: {

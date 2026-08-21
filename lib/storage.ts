@@ -1,9 +1,10 @@
 import { promises as fs } from "fs";
 import path from "path";
-import { del, list, put } from "@vercel/blob";
+import { del, get, list, put } from "@vercel/blob";
 
 type StoragePutOptions = {
   contentType?: string;
+  access?: "public" | "private";
 };
 
 export type StorageItem = {
@@ -82,7 +83,7 @@ export async function putStorageBuffer(
 
   if (isCloudStorageEnabled()) {
     const blob = await put(toCloudPathname(normalized), buffer, {
-      access: "public",
+      access: options.access ?? "public",
       addRandomSuffix: false,
       allowOverwrite: true,
       contentType: options.contentType,
@@ -125,11 +126,18 @@ export async function readStorageBuffer(key: string) {
 
     const response = await fetch(blob.url);
 
-    if (!response.ok) {
-      throw new Error(`Impossible de lire le blob (${response.status}).`);
+    if (response.ok) {
+      return Buffer.from(await response.arrayBuffer());
     }
 
-    return Buffer.from(await response.arrayBuffer());
+    const privateBlob = await get(blob.pathname, {
+      access: "private",
+      useCache: false,
+    });
+    if (!privateBlob || privateBlob.statusCode !== 200) {
+      throw new Error(`Impossible de lire le blob (${response.status}).`);
+    }
+    return Buffer.from(await new Response(privateBlob.stream).arrayBuffer());
   }
 
   try {

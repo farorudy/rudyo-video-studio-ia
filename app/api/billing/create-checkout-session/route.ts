@@ -8,9 +8,22 @@ import {
 } from "@/lib/stripe";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { z } from "zod";
+import {
+  beginIdempotentRequest,
+  enforceApiRateLimit,
+  finishIdempotentRequest,
+  readJsonWithLimit,
+  requireIdempotencyKey,
+} from "@/lib/request-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const checkoutSchema = z.object({
+  productId: z.string().trim().min(1).max(100),
+  mode: z.enum(["credit", "subscription"]).optional(),
+}).strict();
 
 function getCheckoutOrigin(req: NextRequest) {
   const configuredOrigin =
@@ -25,21 +38,8 @@ function getCheckoutOrigin(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  let idempotencyId: string | null = null;
   try {
-    const body = (await req.json()) as {
-      productId: string;
-      mode?: "credit" | "subscription";
-      coupon?: string;
-    };
-    const { productId, mode } = body;
-    const product = getCreditPack(productId) || getSubscriptionPlan(productId);
-    if (!product) {
-      return NextResponse.json(
-        { error: "Produit introuvable." },
-        { status: 400 },
-      );
-    }
-
     const user = await getCurrentUser(req);
     if (!user || user.localSession) {
       return NextResponse.json(
@@ -50,20 +50,43 @@ export async function POST(req: NextRequest) {
         { status: 401 },
       );
     }
+    await enforceApiRateLimit(req, "stripe-checkout", user.id, 10, 60 * 60_000);
+    const key = requireIdempotencyKey(req);
+    const requestState = await beginIdempotentRequest("stripe-checkout", user.id, key);
+    idempotencyId = requestState.record.id;
+    if (!requestState.fresh) {
+      if (requestState.record.response && requestState.record.responseCode) {
+        return NextResponse.json(requestState.record.response, { status: requestState.record.responseCode });
+      }
+      return NextResponse.json({ error: "Création déjà en cours." }, { status: 409 });
+    }
+    const parsed = checkoutSchema.safeParse(await readJsonWithLimit<unknown>(req, 8 * 1024));
+    if (!parsed.success) {
+      const response = { error: "Paramètres de paiement invalides." };
+      await finishIdempotentRequest(idempotencyId, 400, response);
+      return NextResponse.json(response, { status: 400 });
+    }
+    const { productId, mode } = parsed.data;
+    const product = getCreditPack(productId) || getSubscriptionPlan(productId);
+    if (!product) {
+      const response = { error: "Produit introuvable." };
+      await finishIdempotentRequest(idempotencyId, 400, response);
+      return NextResponse.json(response, { status: 400 });
+    }
 
     const stripe = getStripeClient();
     const origin = getCheckoutOrigin(req);
     let stripeCustomerId = user.stripeCustomerId;
 
     if (!stripeCustomerId) {
-      const customer = await stripe.customers.create({
-        email: user.email,
-        name: user.name ?? undefined,
-        metadata: {
-          userId: user.id,
-          app: "rudyo-video-studio-ia",
+      const customer = await stripe.customers.create(
+        {
+          email: user.email,
+          name: user.name ?? undefined,
+          metadata: { userId: user.id, app: "rudyo-video-studio-ia" },
         },
-      });
+        { idempotencyKey: `rudyo-customer-${user.id}` },
+      );
       stripeCustomerId = customer.id;
       await prisma.user.update({
         where: { id: user.id },
@@ -134,22 +157,30 @@ export async function POST(req: NextRequest) {
           plan: productId,
         },
       };
-      const session =
-        await stripe.checkout.sessions.create(subscriptionSession);
-
-      return NextResponse.json({ url: session.url });
+      const session = await stripe.checkout.sessions.create(subscriptionSession, {
+        idempotencyKey: `rudyo-checkout-${user.id}-${key}`,
+      });
+      const response = { url: session.url };
+      await finishIdempotentRequest(idempotencyId, 200, response);
+      return NextResponse.json(response);
     }
 
     const session = await stripe.checkout.sessions.create({
       ...sessionCreate,
-      metadata: {
-        ...metadata,
-      },
-    });
-
-    return NextResponse.json({ url: session.url });
+      metadata: { ...metadata },
+    }, { idempotencyKey: `rudyo-checkout-${user.id}-${key}` });
+    const response = { url: session.url };
+    await finishIdempotentRequest(idempotencyId, 200, response);
+    return NextResponse.json(response);
   } catch (error) {
     console.error("Create checkout session error:", error);
+    if (idempotencyId) {
+      await finishIdempotentRequest(
+        idempotencyId,
+        500,
+        { error: "Impossible de créer la session de paiement." },
+      ).catch(() => undefined);
+    }
     return NextResponse.json(
       { error: "Impossible de créer la session de paiement." },
       { status: 500 },

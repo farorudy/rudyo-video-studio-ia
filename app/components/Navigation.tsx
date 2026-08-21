@@ -8,6 +8,7 @@ const links = [
   { href: "/pricing", label: "Tarifs" },
   { href: "/beta-tests", label: "Beta tests" },
   { href: "/studio", label: "Studio" },
+  { href: "/studio-clip-seedance", label: "Studio Clip Seedance" },
   { href: "/dashboard", label: "Dashboard" },
   { href: "/projects", label: "Projets" },
   { href: "/order-video", label: "Commande video" },

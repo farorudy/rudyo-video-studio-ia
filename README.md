@@ -1,5 +1,7 @@
 # Rudyo Video Studio
 
+Guide complet : [Studio Clip Seedance](docs/studio-clip-seedance.md).
+
 Application Next.js pour générer un storyboard, préparer des prompts vidéo et orchestrer un montage.
 
 ## Mode sans IA

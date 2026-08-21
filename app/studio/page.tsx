@@ -95,7 +95,7 @@ export default function StudioPage() {
           .join(" ");
         const response = await fetch("/api/generate-videos", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
           body: JSON.stringify({
             titre: title || "Vidéo Seedance",
             clips: [
@@ -136,6 +136,7 @@ export default function StudioPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "Idempotency-Key": crypto.randomUUID(),
         },
         body: JSON.stringify({
           tool: selectedTool,

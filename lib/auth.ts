@@ -2,6 +2,7 @@ import {
   createCipheriv,
   createDecipheriv,
   createHash,
+  createHmac,
   randomBytes,
 } from "crypto";
 import { NextRequest } from "next/server";
@@ -92,10 +93,11 @@ export function sanitizeUserName(name?: string) {
 }
 
 export function validateAuthSecret() {
-  const secret = process.env.AUTH_COOKIE_SECRET?.trim();
+  const secret = process.env.AUTH_SECRET?.trim()
+    || (!isProduction() ? process.env.AUTH_COOKIE_SECRET?.trim() : undefined);
   if (!secret || EXAMPLE_AUTH_SECRETS.has(secret) || secret.length < 32) {
     throw new Error(
-      "Configuration serveur incomplete : AUTH_COOKIE_SECRET manquant ou invalide (minimum 32 caracteres).",
+      "Configuration serveur incomplete : AUTH_SECRET manquant ou invalide (minimum 32 caracteres).",
     );
   }
 }
@@ -135,9 +137,20 @@ export function validateDatabaseUrl() {
 
 function getSecretKey() {
   validateAuthSecret();
+  const secret = process.env.AUTH_SECRET?.trim()
+    || process.env.AUTH_COOKIE_SECRET!.trim();
   return createHash("sha256")
-    .update(process.env.AUTH_COOKIE_SECRET!.trim(), "utf8")
+    .update(secret, "utf8")
     .digest();
+}
+
+function hashPersistentSession(token: string) {
+  validateAuthSecret();
+  const secret = process.env.AUTH_SECRET?.trim()
+    || process.env.AUTH_COOKIE_SECRET!.trim();
+  return createHmac("sha256", secret)
+    .update(`session:${token}`, "utf8")
+    .digest("hex");
 }
 
 function encodePayload(payload: SessionPayload) {
@@ -186,15 +199,7 @@ export async function getCurrentUser(
   }
 
   const payload = decodePayload(cookie);
-  if (!payload || !payload.userId) {
-    return null;
-  }
-
-  if (Date.now() - payload.issuedAt > SESSION_MAX_AGE_MS) {
-    return null;
-  }
-
-  if (payload.local) {
+  if (payload?.local && payload.userId && Date.now() - payload.issuedAt <= SESSION_MAX_AGE_MS) {
     const credits = getInitialCredits();
     return {
       id: payload.userId,
@@ -215,7 +220,18 @@ export async function getCurrentUser(
     };
   }
 
-  return prisma.user.findUnique({ where: { id: payload.userId } });
+  if (cookie.includes(":")) return null;
+  const session = await prisma.authSession.findUnique({
+    where: { tokenHash: hashPersistentSession(cookie) },
+    include: { user: true },
+  });
+  if (!session || session.revokedAt || session.expiresAt <= new Date() || !session.user.emailVerifiedAt) {
+    return null;
+  }
+  if (Date.now() - session.lastSeenAt.getTime() > 5 * 60_000) {
+    await prisma.authSession.update({ where: { id: session.id }, data: { lastSeenAt: new Date() } });
+  }
+  return session.user;
 }
 
 export function signSessionCookie(

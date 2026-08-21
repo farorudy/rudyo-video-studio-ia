@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Script from "next/script";
 
 const videoTypes = [
   "Flyer anime",
@@ -33,12 +34,14 @@ export default function OrderVideoForm() {
       budget: String(formData.get("budget") || ""),
       fichiers: String(formData.get("fichiers") || ""),
       message: String(formData.get("message") || ""),
+      turnstileToken: String(formData.get("cf-turnstile-response") || ""),
     };
 
     try {
       const response = await fetch("/api/contact", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        // Empêche un double envoi lors d’un double-clic ou d’une reprise réseau.
+        headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
         body: JSON.stringify(payload),
       });
       const data = await response.json();
@@ -61,6 +64,7 @@ export default function OrderVideoForm() {
 
   return (
     <form action={submitOrder} className="grid gap-5">
+      <Script src="https://challenges.cloudflare.com/turnstile/v0/api.js" strategy="afterInteractive" />
       <div className="grid gap-5 md:grid-cols-2">
         <label className="grid gap-2 text-sm font-semibold text-slate-200">
           Prenom
@@ -140,6 +144,12 @@ export default function OrderVideoForm() {
         />
       </label>
 
+      {process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ? (
+        <div className="cf-turnstile" data-sitekey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY} />
+      ) : (
+        <p className="text-sm text-amber-300">Le formulaire est indisponible : CAPTCHA non configuré.</p>
+      )}
+
       <div className="grid gap-5 md:grid-cols-2">
         <label className="grid gap-2 text-sm font-semibold text-slate-200">
           Date limite
@@ -171,7 +181,7 @@ export default function OrderVideoForm() {
 
       <button
         type="submit"
-        disabled={status === "loading"}
+        disabled={status === "loading" || !process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY}
         className="rounded-2xl bg-cyan-400 px-6 py-4 font-black text-slate-950 hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {status === "loading" ? "Envoi en cours..." : "Demander un devis"}

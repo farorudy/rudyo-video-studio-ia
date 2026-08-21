@@ -1,0 +1,32 @@
+name: Security CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/rudyo_ci
+      AUTH_SECRET: ci-only-auth-secret-at-least-32-characters-long
+      APP_BASE_URL: https://example.test
+      USE_MOCK_STORYBOARD: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --include=dev
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test:security
+      - run: npm run test:seedance
+      - run: npm run build

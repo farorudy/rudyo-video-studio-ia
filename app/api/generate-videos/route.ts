@@ -204,6 +204,7 @@ async function createChargedBytePlusJob(
   user: SessionUser,
   clip: ClipPrompt,
   model: string,
+  requestKey: string,
 ) {
   const reservation = await reserveCredits({
     userId: user.id,
@@ -211,6 +212,7 @@ async function createChargedBytePlusJob(
     amount: CREDIT_COSTS.seedance_video,
     description: `Génération Seedance : ${clip.nom}`,
     metadata: { clipId: clip.id, model },
+    idempotencyKey: `${requestKey}:${clip.id}`,
   });
 
   try {
@@ -392,7 +394,9 @@ export async function POST(req: NextRequest) {
     const jobs: GenerationJob[] = [];
 
     for (const clip of clips) {
-      jobs.push(await createChargedBytePlusJob(user, clip, model));
+      const requestKey = req.headers.get("idempotency-key")?.trim();
+      if (!requestKey) throw new Error("Clé d’idempotence manquante.");
+      jobs.push(await createChargedBytePlusJob(user, clip, model, requestKey));
     }
 
     const baseName = slugify(body.titre?.trim() || "clip-video");

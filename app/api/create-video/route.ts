@@ -188,7 +188,7 @@ async function assertVideoQuality(outputPath: string, size: number) {
 export async function POST(req: NextRequest) {
   try {
     const user = await getCurrentUser(req);
-    if (!user) {
+    if (!user || user.localSession) {
       return NextResponse.json(
         {
           success: false,
@@ -196,6 +196,16 @@ export async function POST(req: NextRequest) {
             "Utilisateur non authentifié. Connectez-vous avant de créer une vidéo.",
         },
         { status: 401 },
+      );
+    }
+
+    if (process.env.NODE_ENV === "production") {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Ce rendu synchrone historique est désactivé en production. Utilisez le studio et la file de rendu sécurisée.",
+        },
+        { status: 410 },
       );
     }
 

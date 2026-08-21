@@ -368,6 +368,7 @@ export async function POST(req: NextRequest) {
         typeVideo: sanitize(validBody.typeVideo),
         model: process.env.OPENAI_MODEL || "gpt-4o-mini",
       },
+      idempotencyKey: req.headers.get("idempotency-key")?.trim(),
     });
 
     const client = new OpenAI({ apiKey });

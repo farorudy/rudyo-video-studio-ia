@@ -1,21 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-
-type AiSettingsPayload = {
-  preferredAiProvider?: string;
-  allowPremiumAi?: boolean;
-};
+import { aiSettingsSchema, providerAllowedForPlan } from "@/lib/ai-settings-policy";
 
 export async function GET(req: NextRequest) {
   const user = await getCurrentUser(req);
-  if (!user) {
-    return NextResponse.json(
-      { error: "Authentification requise." },
-      { status: 401 },
-    );
-  }
-
+  if (!user) return NextResponse.json({ error: "Authentification vérifiée requise." }, { status: 401 });
   return NextResponse.json({
     success: true,
     preferredAiProvider: user.preferredAiProvider || null,
@@ -25,32 +15,23 @@ export async function GET(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   const user = await getCurrentUser(req);
-  if (!user) {
+  if (!user) return NextResponse.json({ error: "Authentification vérifiée requise." }, { status: 401 });
+
+  const parsed = aiSettingsSchema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) {
     return NextResponse.json(
-      { error: "Authentification requise." },
-      { status: 401 },
+      { error: "Seul le fournisseur IA autorisé peut être modifié." },
+      { status: 400 },
     );
   }
-
-  const payload = (await req.json()) as AiSettingsPayload;
-  const data: Record<string, unknown> = {};
-
-  if (typeof payload.preferredAiProvider === "string") {
-    data.preferredAiProvider = payload.preferredAiProvider.trim() || null;
-  }
-
-  if (typeof payload.allowPremiumAi === "boolean") {
-    data.allowPremiumAi = payload.allowPremiumAi;
+  if (!providerAllowedForPlan(user.plan, parsed.data.preferredAiProvider)) {
+    return NextResponse.json({ error: "Ce fournisseur n’est pas disponible avec votre formule." }, { status: 403 });
   }
 
   const updated = await prisma.user.update({
     where: { id: user.id },
-    data,
+    data: { preferredAiProvider: parsed.data.preferredAiProvider },
+    select: { preferredAiProvider: true, allowPremiumAi: true },
   });
-
-  return NextResponse.json({
-    success: true,
-    preferredAiProvider: updated.preferredAiProvider || null,
-    allowPremiumAi: updated.allowPremiumAi,
-  });
+  return NextResponse.json({ success: true, ...updated });
 }

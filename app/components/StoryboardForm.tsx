@@ -234,7 +234,7 @@ export default function StoryboardForm() {
     try {
       const response = await fetch("/api/storyboard", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
         credentials: "same-origin",
         body: JSON.stringify(form),
       });

@@ -2,6 +2,12 @@ import path from "path";
 import { NextRequest, NextResponse } from "next/server";
 import { putStorageBuffer, toClientFileRef } from "@/lib/storage";
 import { getCurrentUser } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+import {
+  enforceApiRateLimit,
+  readFormDataWithLimit,
+  sniffMime,
+} from "@/lib/request-security";
 
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 const ALLOWED_EXTENSIONS = new Set([".mp4", ".mov", ".webm"]);
@@ -18,14 +24,18 @@ function sanitizeFileName(value: string) {
 export async function POST(req: NextRequest) {
   try {
     const user = await getCurrentUser(req);
-    if (!user) {
+    if (!user || user.localSession) {
       return NextResponse.json(
         { success: false, error: "Authentification requise." },
         { status: 401 },
       );
     }
 
-    const formData = await req.formData();
+    await enforceApiRateLimit(req, "upload-plans", user.id, 5, 60_000);
+    const formData = await readFormDataWithLimit(req, 301 * 1024 * 1024);
+    const projectId = String(formData.get("projectId") || "");
+    const project = await prisma.videoProject.findFirst({ where: { id: projectId, userId: user.id }, select: { id: true } });
+    if (!project) return NextResponse.json({ success: false, error: "Projet introuvable." }, { status: 404 });
     const files = formData
       .getAll("files")
       .filter((entry): entry is File => entry instanceof File);
@@ -39,6 +49,7 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
+    if (files.length > 10) return NextResponse.json({ success: false, error: "Dix fichiers maximum par envoi." }, { status: 400 });
 
     const savedFiles = await Promise.all(
       files.map(async (file, index) => {
@@ -57,11 +68,16 @@ export async function POST(req: NextRequest) {
         const baseName = path.basename(file.name, extension);
         const fileName = `${String(index + 1).padStart(2, "0")}-${sanitizeFileName(baseName)}${extension}`;
         const buffer = Buffer.from(await file.arrayBuffer());
-        const stored = await putStorageBuffer(`plans/${user.id}/${fileName}`, buffer, {
-          contentType: file.type || "video/mp4",
+        const actualMime = sniffMime(buffer);
+        if (!actualMime || !ALLOWED_MIME_TYPES.has(actualMime)) throw new Error("Le contenu réel du fichier vidéo n’est pas autorisé.");
+        const assetId = crypto.randomUUID();
+        const storageKey = `users/${user.id}/projects/${projectId}/${assetId}/${fileName}`;
+        const stored = await putStorageBuffer(storageKey, buffer, {
+          contentType: actualMime,
+          access: "private",
         });
 
-        return toClientFileRef(`plans/${user.id}/${fileName}`, stored.url);
+        return toClientFileRef(storageKey, stored.url);
       }),
     );
 

@@ -2,18 +2,16 @@ import { Mistral } from "@mistralai/mistralai";
 import { GenerateRequest, AIResponse, StoryboardJSON } from "../types";
 import { getSystemPrompt, buildStoryboardPrompt } from "../prompt-templates";
 
-const mistral = new Mistral({
-  apiKey: process.env.MISTRAL_API_KEY,
-});
-
 export async function generateWithMistral(
   request: GenerateRequest,
 ): Promise<AIResponse> {
-  if (!process.env.MISTRAL_API_KEY) {
+  const apiKey = process.env.MISTRAL_API_KEY;
+  if (!apiKey) {
     throw new Error("MISTRAL_API_KEY not configured");
   }
 
   try {
+    const mistral = new Mistral({ apiKey });
     const systemPrompt = getSystemPrompt("sovereign");
     const userPrompt = buildStoryboardPrompt(request);
 

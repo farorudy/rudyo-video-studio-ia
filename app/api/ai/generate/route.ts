@@ -85,6 +85,7 @@ export async function POST(request: NextRequest) {
       amount: creditCost,
       description: `Génération Rudyo : ${CREDIT_TOOL_LABELS[tool]}`,
       metadata: { tool },
+      idempotencyKey: request.headers.get("idempotency-key")?.trim(),
     });
     reservationId = reservation.id;
 

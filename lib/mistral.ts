@@ -1,14 +1,12 @@
 ﻿import { Mistral } from "@mistralai/mistralai";
 
-export const mistral = new Mistral({
-  apiKey: process.env.MISTRAL_API_KEY,
-});
-
 export async function generateWithMistral(prompt: string) {
-  if (!process.env.MISTRAL_API_KEY) {
+  const apiKey = process.env.MISTRAL_API_KEY;
+  if (!apiKey) {
     throw new Error("MISTRAL_API_KEY manquante");
   }
 
+  const mistral = new Mistral({ apiKey });
   const response = await mistral.chat.complete({
     model: process.env.MISTRAL_MODEL || "mistral-small-latest",
     messages: [

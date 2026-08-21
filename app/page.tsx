@@ -188,7 +188,7 @@ export default function HomePage() {
     try {
       const response = await fetch("/api/storyboard", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
         body: JSON.stringify({
           ...project,
           typeVideo: selectedTypeLabel,
@@ -258,7 +258,10 @@ export default function HomePage() {
 
       const emailResponse = await fetch("/api/send-result-email", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": crypto.randomUUID(),
+        },
         body: JSON.stringify({
           to: "rudy.faro@gmail.com",
           title: storyboard.titre,

@@ -69,7 +69,10 @@ export function StoryboardGeneratorForm() {
     try {
       const response = await fetch("/api/ai/storyboard", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": crypto.randomUUID(),
+        },
         body: JSON.stringify(request),
       });
 

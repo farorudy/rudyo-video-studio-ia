@@ -32,6 +32,7 @@ enum TransactionType {
 
 enum TransactionStatus {
   PENDING
+  RESERVED
   CONFIRMED
   REFUNDED
   CANCELED
@@ -47,6 +48,66 @@ enum CreditAction {
   EXPORT_TXT
   CLIP_PACK
   OTHER
+}
+
+enum VideoProjectStatus {
+  DRAFT
+  ACTIVE
+  RENDERING
+  COMPLETED
+  ARCHIVED
+}
+
+enum MediaAssetType {
+  AUDIO
+  ARTIST_PORTRAIT
+  ARTIST_PROFILE_LEFT
+  ARTIST_PROFILE_RIGHT
+  ARTIST_FULL_BODY
+  REFERENCE_IMAGE
+  REFERENCE_VIDEO
+  DECOR
+  OUTFIT
+  FIRST_FRAME
+  LAST_FRAME
+  CONSENT_DOCUMENT
+  GENERATED_VIDEO
+  THUMBNAIL
+  FINAL_EXPORT
+}
+
+enum StoryboardSceneStatus {
+  DRAFT
+  READY
+  SUBMITTED
+  QUEUED
+  RUNNING
+  COMPLETED
+  REJECTED
+  FAILED
+  CANCELED
+}
+
+enum GenerationTaskStatus {
+  CREATED
+  SUBMITTING
+  SUBMISSION_UNKNOWN
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  REJECTED
+  FAILED
+  CANCELED
+  EXPIRED
+}
+
+enum FinalExportStatus {
+  DRAFT
+  QUEUED
+  RENDERING
+  COMPLETED
+  FAILED
+  CANCELED
 }
 
 model User {
@@ -67,11 +128,96 @@ model User {
   apiKey               String?
   createdAt            DateTime            @default(now())
   updatedAt            DateTime            @updatedAt
+  emailVerifiedAt      DateTime?
   transactions         CreditTransaction[]
   purchaseTransactions Transaction[]
   creditUsages         CreditUsage[]
   aiUsageLogs          AiUsageLog[]
   subscriptions        Subscription[]
+  videoProjects        VideoProject[]
+  mediaAssets          MediaAsset[]
+  generationTasks      GenerationTask[]
+  tokenUsages          TokenUsage[]
+  consentRecords       ConsentRecord[]
+  authSessions         AuthSession[]
+}
+
+model EmailVerificationToken {
+  id              String    @id @default(cuid())
+  email           String
+  requestedName   String?
+  tokenHash       String    @unique
+  requestedIpHash String
+  expiresAt       DateTime
+  usedAt          DateTime?
+  attempts        Int       @default(0)
+  maxAttempts     Int       @default(5)
+  createdAt       DateTime  @default(now())
+
+  @@index([email, createdAt])
+  @@index([requestedIpHash, createdAt])
+}
+
+model AuthSession {
+  id            String   @id @default(cuid())
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId        String
+  tokenHash     String   @unique
+  expiresAt     DateTime
+  revokedAt     DateTime?
+  lastSeenAt    DateTime @default(now())
+  rotatedAt     DateTime?
+  createdAt     DateTime @default(now())
+
+  @@index([userId, expiresAt])
+}
+
+model AuthThrottle {
+  id           String    @id @default(cuid())
+  keyHash      String
+  action       String
+  windowStart  DateTime
+  attempts     Int       @default(0)
+  blockedUntil DateTime?
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([keyHash, action])
+  @@index([blockedUntil])
+}
+
+model ApiIdempotency {
+  id           String   @id @default(cuid())
+  scope        String
+  ownerKey     String
+  keyHash      String
+  status       String   @default("PROCESSING")
+  response     Json?
+  responseCode Int?
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([scope, ownerKey, keyHash])
+  @@index([expiresAt])
+}
+
+model ContactRequest {
+  id          String   @id @default(cuid())
+  name        String
+  email       String
+  phone       String?
+  videoType   String
+  objective   String
+  deadline    String?
+  budget      String?
+  filesNote   String?
+  message     String?
+  ipHash      String
+  status      String   @default("RECEIVED")
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([ipHash, createdAt])
 }
 
 model Transaction {
@@ -95,6 +241,7 @@ model CreditUsage {
   amount    Int
   reason    String
   metadata  Json?
+  reservationId String? @unique
   createdAt DateTime @default(now())
 
   @@index([userId, createdAt])
@@ -109,7 +256,11 @@ model CreditTransaction {
   creditsAmount Int
   description   String
   metadata      Json?
+  idempotencyKey String?           @unique
+  providerTaskId String?
   status        TransactionStatus @default(PENDING)
+  confirmedAt   DateTime?
+  refundedAt    DateTime?
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
 }
@@ -145,6 +296,33 @@ model Subscription {
   updatedAt            DateTime      @updatedAt
 }
 
+model StripeWebhookEvent {
+  id            String    @id @default(cuid())
+  stripeEventId String    @unique
+  type          String
+  status        String    @default("PROCESSING")
+  errorMessage  String?
+  processedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([status, createdAt])
+}
+
+model SubscriptionCreditGrant {
+  id                   String   @id @default(cuid())
+  invoiceId            String   @unique
+  stripeSubscriptionId String
+  userId               String
+  credits              Int
+  periodStart          DateTime?
+  periodEnd            DateTime?
+  createdAt            DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([stripeSubscriptionId, createdAt])
+}
+
 model ProductPlan {
   id                  String   @id @default(cuid())
   slug                String   @unique
@@ -173,13 +351,239 @@ model CreditPack {
 }
 
 model AdminAuditLog {
-  id            String   @id @default(cuid())
-  adminSubject  String
-  action        String
-  targetUserId  String?
-  metadata      Json?
-  createdAt     DateTime @default(now())
+  id           String   @id @default(cuid())
+  adminSubject String
+  action       String
+  targetUserId String?
+  metadata     Json?
+  createdAt    DateTime @default(now())
 
   @@index([createdAt])
   @@index([targetUserId, createdAt])
+}
+
+model VideoProject {
+  id               String             @id @default(cuid())
+  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId           String
+  title            String
+  artistName       String
+  musicGenre       String?
+  bpm              Int?
+  durationSeconds  Int?
+  finalFormat      String             @default("16:9")
+  summary          String?
+  mood             String?
+  visualStyle      String?
+  locations        Json?
+  colors           Json?
+  cameraMovements  Json?
+  status           VideoProjectStatus @default(DRAFT)
+  demoMode         Boolean            @default(false)
+  maxBudgetUsd     Float?
+  maxBudgetCredits Int?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  artistIdentity   ArtistIdentity?
+  mediaAssets      MediaAsset[]
+  scenes           StoryboardScene[]
+  generationTasks  GenerationTask[]
+  tokenUsages      TokenUsage[]
+  budgetLimit      BudgetLimit?
+  finalExports     FinalExport[]
+  consentRecords   ConsentRecord[]
+
+  @@index([userId, updatedAt])
+}
+
+model ArtistIdentity {
+  id                  String       @id @default(cuid())
+  project             VideoProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId           String       @unique
+  physicalDescription String?
+  hairstyle           String?
+  mainOutfit          String?
+  accessories         Json?
+  colorPalette        Json?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+}
+
+model MediaAsset {
+  id         String         @id @default(cuid())
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String
+  project    VideoProject   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId  String
+  type       MediaAssetType
+  fileName   String
+  storageKey String         @unique
+  url        String
+  mimeType   String
+  sizeBytes  Int
+  metadata   Json?
+  createdAt  DateTime       @default(now())
+
+  @@index([projectId, type])
+  @@index([userId, createdAt])
+}
+
+model StoryboardScene {
+  id                String                @id @default(cuid())
+  project           VideoProject          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId         String
+  order             Int
+  title             String
+  startTimeSeconds  Float
+  endTimeSeconds    Float
+  durationSeconds   Int
+  prompt            String
+  negativePrompt    String?
+  mood              String?
+  location          String?
+  cameraMovement    String?
+  modelId           String?
+  resolution        String                @default("720p")
+  ratio             String                @default("16:9")
+  variantsRequested Int                   @default(1)
+  seed              Int?
+  cameraFixed       Boolean               @default(false)
+  generateAudio     Boolean               @default(false)
+  watermark         Boolean               @default(false)
+  locked            Boolean               @default(false)
+  status            StoryboardSceneStatus @default(DRAFT)
+  selectedVariantId String?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  generationTasks   GenerationTask[]
+  variants          GenerationVariant[]
+  tokenUsages       TokenUsage[]
+
+  @@unique([projectId, order])
+  @@index([projectId, status])
+}
+
+model GenerationTask {
+  id                     String               @id @default(cuid())
+  user                   User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId                 String
+  project                VideoProject         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId              String
+  scene                  StoryboardScene      @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  sceneId                String
+  bytePlusTaskId         String?              @unique
+  idempotencyKey         String               @unique
+  provider               String               @default("byteplus")
+  modelId                String
+  status                 GenerationTaskStatus @default(CREATED)
+  requestPayload         Json
+  responsePayload        Json?
+  errorCode              String?
+  errorMessage           String?
+  estimatedCredits       Int                  @default(0)
+  estimatedTokens        Int?
+  actualCompletionTokens Int?
+  estimatedCostUsd       Float?
+  actualCostUsd          Float?
+  sourceVideoUrl         String?
+  permanentVideoUrl      String?
+  thumbnailUrl           String?
+  creditReservationId    String?              @unique
+  lastPolledAt           DateTime?
+  completedAt            DateTime?
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+  variants               GenerationVariant[]
+  tokenUsage             TokenUsage?
+
+  @@index([userId, createdAt])
+  @@index([projectId, status])
+  @@index([sceneId, createdAt])
+}
+
+model GenerationVariant {
+  id              String          @id @default(cuid())
+  task            GenerationTask  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId          String
+  scene           StoryboardScene @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  sceneId         String
+  variantNumber   Int
+  videoUrl        String
+  thumbnailUrl    String?
+  durationSeconds Int?
+  selected        Boolean         @default(false)
+  createdAt       DateTime        @default(now())
+
+  @@unique([taskId, variantNumber])
+  @@index([sceneId, selected])
+}
+
+model TokenUsage {
+  id               String          @id @default(cuid())
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId           String
+  project          VideoProject    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId        String
+  scene            StoryboardScene @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  sceneId          String
+  task             GenerationTask  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId           String          @unique
+  modelId          String
+  completionTokens Int
+  costUsd          Float?
+  costEur          Float?
+  creditsCharged   Int
+  createdAt        DateTime        @default(now())
+
+  @@index([projectId, createdAt])
+  @@index([userId, createdAt])
+}
+
+model BudgetLimit {
+  id                   String       @id @default(cuid())
+  project              VideoProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId            String       @unique
+  perGenerationCredits Int?
+  projectCredits       Int?
+  dailyCredits         Int?
+  monthlyCredits       Int?
+  projectUsd           Float?
+  alertThresholds      Json         @default("[50,75,90]")
+  blockAtPercent       Int          @default(100)
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+}
+
+model FinalExport {
+  id           String            @id @default(cuid())
+  project      VideoProject      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId    String
+  status       FinalExportStatus @default(DRAFT)
+  format       String
+  resolution   String
+  storageKey   String?
+  url          String?
+  errorMessage String?
+  settings     Json?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  @@index([projectId, createdAt])
+}
+
+model ConsentRecord {
+  id                String       @id @default(cuid())
+  user              User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId            String
+  project           VideoProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId         String
+  personName        String
+  authorizationType String
+  consentedAt       DateTime
+  documentAssetId   String?
+  notes             String?
+  createdAt         DateTime     @default(now())
+
+  @@index([projectId, consentedAt])
+  @@index([userId, createdAt])
 }

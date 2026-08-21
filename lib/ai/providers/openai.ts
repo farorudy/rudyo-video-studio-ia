@@ -2,18 +2,16 @@ import OpenAI from "openai";
 import { GenerateRequest, AIResponse, StoryboardJSON } from "../types";
 import { getSystemPrompt, buildStoryboardPrompt } from "../prompt-templates";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-
 export async function generateWithOpenAI(
   request: GenerateRequest,
 ): Promise<AIResponse> {
-  if (!process.env.OPENAI_API_KEY) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
     throw new Error("OPENAI_API_KEY not configured");
   }
 
   try {
+    const openai = new OpenAI({ apiKey });
     const systemPrompt = getSystemPrompt("creative");
     const userPrompt = buildStoryboardPrompt(request);
 

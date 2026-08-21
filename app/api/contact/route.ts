@@ -1,60 +1,82 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+import { prisma } from "@/lib/prisma";
+import {
+  beginIdempotentRequest,
+  clientIp,
+  clientIpHash,
+  enforceApiRateLimit,
+  finishIdempotentRequest,
+  readJsonWithLimit,
+  requireIdempotencyKey,
+  withTimeout,
+} from "@/lib/request-security";
+
+const clean = (max: number) => z.string().trim().max(max).transform((value) => value.replace(/[\u0000-\u001f\u007f<>]/g, " ").replace(/\s+/g, " "));
+const schema = z.object({
+  prenom: clean(80).pipe(z.string().min(1)),
+  nom: clean(80).pipe(z.string().min(1)),
+  email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
+  telephone: clean(40).optional(),
+  typeVideo: clean(100).pipe(z.string().min(1)),
+  objectif: clean(1_000).pipe(z.string().min(2)),
+  dateLimite: clean(20).optional(),
+  budget: clean(40).optional(),
+  fichiers: clean(1_000).optional(),
+  message: clean(4_000).optional(),
+  turnstileToken: z.string().min(10).max(2_048),
+}).strict();
+
+async function verifyTurnstile(token: string, ip: string) {
+  const secret = process.env.TURNSTILE_SECRET_KEY;
+  if (!secret) throw new Error("CAPTCHA non configuré.");
+  const response = await withTimeout(fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ secret, response: token, remoteip: ip }),
+    cache: "no-store",
+  }), 10_000);
+  const result = await response.json() as { success?: boolean };
+  return response.ok && result.success === true;
+}
 
 export async function POST(request: NextRequest) {
+  let idempotencyId: string | null = null;
   try {
-    const data = await request.json();
-
-    const {
-      nom,
-      prenom,
-      email,
-      telephone,
-      typeVideo,
-      objectif,
-      dateLimite,
-      budget,
-      fichiers,
-      message,
-    } = data;
-
-    // Validation basique
-    if (!nom || !prenom || !email || !typeVideo || !objectif) {
-      return NextResponse.json(
-        { error: "Champs requis manquants" },
-        { status: 400 },
-      );
+    const ip = clientIp(request);
+    await enforceApiRateLimit(request, "contact", `anonymous:${ip}`, 5, 60 * 60_000);
+    const key = requireIdempotencyKey(request);
+    const idempotency = await beginIdempotentRequest("contact", `anonymous:${ip}`, key);
+    idempotencyId = idempotency.record.id;
+    if (!idempotency.fresh) {
+      if (idempotency.record.responseCode && idempotency.record.response) return NextResponse.json(idempotency.record.response, { status: idempotency.record.responseCode });
+      return NextResponse.json({ error: "Cette demande est déjà en cours." }, { status: 409 });
     }
-
-    // Ici tu pourrais envoyer un email avec Resend, Sendgrid, ou autre
-    // Pour l'instant, on va juste logguer
-
-    console.log("📋 Nouvelle demande de devis :", {
-      nom,
-      prenom,
-      email,
-      telephone,
-      typeVideo,
-      objectif,
-      dateLimite,
-      budget,
-      fichiers,
-      message,
-      timestamp: new Date().toISOString(),
+    const parsed = schema.safeParse(await readJsonWithLimit<unknown>(request, 16 * 1024));
+    if (!parsed.success) throw new Error("Les informations du devis sont invalides.");
+    if (!(await verifyTurnstile(parsed.data.turnstileToken, ip))) throw new Error("La vérification anti-robot a échoué.");
+    const saved = await prisma.contactRequest.create({
+      data: {
+        name: `${parsed.data.prenom} ${parsed.data.nom}`,
+        email: parsed.data.email,
+        phone: parsed.data.telephone || null,
+        videoType: parsed.data.typeVideo,
+        objective: parsed.data.objectif,
+        deadline: parsed.data.dateLimite || null,
+        budget: parsed.data.budget || null,
+        filesNote: parsed.data.fichiers || null,
+        message: parsed.data.message || null,
+        ipHash: clientIpHash(request),
+      },
+      select: { id: true },
     });
-
-    // TODO: Intégrer avec un service d'email
-    // await sendEmail({
-    //   to: email,
-    //   subject: "Demande de devis reçue - Farozik",
-    //   html: `Merci de votre demande. Nous vous répondrons sous 24-48h.`,
-    // });
-
-    return NextResponse.json(
-      { success: true, message: "Demande reçue" },
-      { status: 200 },
-    );
+    const response = { success: true, message: "Demande enregistrée.", requestId: saved.id };
+    await finishIdempotentRequest(idempotency.record.id, 201, response);
+    return NextResponse.json(response, { status: 201 });
   } catch (error) {
-    console.error("Erreur contact :", error);
-    return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
+    const message = error instanceof Error && (error.message.includes("anti-robot") || error.message.includes("invalides"))
+      ? error.message : "Impossible d’enregistrer la demande pour le moment.";
+    if (idempotencyId) await finishIdempotentRequest(idempotencyId, 400, { error: message }).catch(() => undefined);
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 }

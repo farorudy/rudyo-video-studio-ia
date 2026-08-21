@@ -454,6 +454,7 @@ export async function POST(req: NextRequest) {
         titre: body.titre?.trim() || "Projet sans titre",
         provider: selectedProvider,
       },
+      idempotencyKey: req.headers.get("idempotency-key")?.trim(),
     });
 
     const drafts = buildClipPromptDrafts(body);

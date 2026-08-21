@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import {
   CreditAction as PrismaCreditAction,
+  Prisma,
   TransactionStatus,
   TransactionType,
 } from "@prisma/client";
@@ -14,6 +15,7 @@ export type CreditReservation = {
   action: string;
   amount: number;
   status: "reserved" | "confirmed" | "refunded";
+  idempotencyKey?: string;
   description?: string;
   metadata?: unknown;
 };
@@ -47,6 +49,7 @@ function parseReservationArgs(args: any[]) {
       amount: args[0]?.amount as number | undefined,
       description: args[0]?.description as string | undefined,
       metadata: args[0]?.metadata as unknown,
+      idempotencyKey: args[0]?.idempotencyKey as string | undefined,
     };
   }
 
@@ -56,6 +59,7 @@ function parseReservationArgs(args: any[]) {
     amount: typeof args[2] === "number" ? (args[2] as number) : undefined,
     description: typeof args[2] === "string" ? (args[2] as string) : undefined,
     metadata: args[3] as unknown,
+    idempotencyKey: args[4] as string | undefined,
   };
 }
 
@@ -83,7 +87,7 @@ export async function getCreditBalance(userId?: string) {
 }
 
 export async function reserveCredits(...args: any[]): Promise<CreditReservation> {
-  const { userId, action, amount, description, metadata } =
+  const { userId, action, amount, description, metadata, idempotencyKey } =
     parseReservationArgs(args);
   const finalAmount = amount ?? getActionCreditCost(action);
 
@@ -91,10 +95,8 @@ export async function reserveCredits(...args: any[]): Promise<CreditReservation>
     throw new Error("Utilisateur non authentifié.");
   }
 
-  const balance = await getCreditBalance(userId);
-
-  if (balance < finalAmount) {
-    throw new Error("CREDITS_INSUFFICIENTS");
+  if (!idempotencyKey || idempotencyKey.length < 8 || idempotencyKey.length > 160) {
+    throw new Error("Clé d’idempotence de crédits invalide ou manquante.");
   }
 
   if (isLocalUserId(userId)) {
@@ -106,20 +108,35 @@ export async function reserveCredits(...args: any[]): Promise<CreditReservation>
       status: "reserved",
       description,
       metadata,
+      idempotencyKey,
     };
   }
 
-  const transaction = await prisma.creditTransaction.create({
-    data: {
-      userId,
-      type: TransactionType.RESERVATION,
-      action: toPrismaCreditAction(action),
-      creditsAmount: -finalAmount,
-      description: description ?? `Reservation credits Rudyo : ${action}`,
-      metadata: metadata === undefined ? undefined : (metadata as object),
-      status: TransactionStatus.PENDING,
-    },
-  });
+  const existing = await prisma.creditTransaction.findUnique({ where: { idempotencyKey } });
+  if (existing) {
+    if (existing.userId !== userId || Math.abs(existing.creditsAmount) !== finalAmount) throw new Error("Clé d’idempotence déjà utilisée pour une autre opération.");
+    return { id: existing.id, userId, action, amount: finalAmount, status: existing.status === TransactionStatus.CONFIRMED ? "confirmed" : existing.status === TransactionStatus.REFUNDED ? "refunded" : "reserved", description: existing.description, metadata, idempotencyKey };
+  }
+
+  const transaction = await prisma.$transaction(async (tx) => {
+    const updated = await tx.user.updateMany({
+      where: { id: userId, creditsRemaining: { gte: finalAmount } },
+      data: { credits: { decrement: finalAmount }, creditsRemaining: { decrement: finalAmount } },
+    });
+    if (updated.count !== 1) throw new Error("CREDITS_INSUFFICIENTS");
+    return tx.creditTransaction.create({
+      data: {
+        userId,
+        type: TransactionType.RESERVATION,
+        action: toPrismaCreditAction(action),
+        creditsAmount: -finalAmount,
+        description: description ?? `Réservation crédits Rudyo : ${action}`,
+        metadata: metadata === undefined ? undefined : (metadata as object),
+        idempotencyKey,
+        status: TransactionStatus.RESERVED,
+      },
+    });
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
   return {
     id: transaction.id,
@@ -129,6 +146,7 @@ export async function reserveCredits(...args: any[]): Promise<CreditReservation>
     status: "reserved",
     description: transaction.description,
     metadata,
+    idempotencyKey,
   };
 }
 
@@ -152,30 +170,17 @@ export async function confirmCreditUsage(...args: any[]) {
       where: { id: String(reservationId) },
     });
 
-    if (!pending || pending.status !== TransactionStatus.PENDING) {
-      throw new Error("Reservation credits introuvable ou deja traitee.");
-    }
+    if (!pending) throw new Error("Réservation crédits introuvable.");
+    if (pending.status === TransactionStatus.CONFIRMED) return pending;
+    if (pending.status !== TransactionStatus.RESERVED) throw new Error("Réservation crédits déjà traitée.");
 
     const amount = Math.abs(pending.creditsAmount);
-    const updatedUser = await tx.user.updateMany({
-      where: {
-        id: pending.userId,
-        creditsRemaining: { gte: amount },
-      },
-      data: {
-        credits: { decrement: amount },
-        creditsRemaining: { decrement: amount },
-        creditsUsed: { increment: amount },
-      },
+    const transitioned = await tx.creditTransaction.updateMany({
+      where: { id: pending.id, status: TransactionStatus.RESERVED },
+      data: { status: TransactionStatus.CONFIRMED, confirmedAt: new Date(), providerTaskId: args[1]?.providerTaskId },
     });
-
-    if (updatedUser.count === 0) {
-      await tx.creditTransaction.update({
-        where: { id: pending.id },
-        data: { status: TransactionStatus.CANCELED },
-      });
-      throw new Error("CREDITS_INSUFFICIENTS");
-    }
+    if (transitioned.count !== 1) throw new Error("Réservation crédits déjà traitée.");
+    await tx.user.update({ where: { id: pending.userId }, data: { creditsUsed: { increment: amount } } });
 
     await tx.creditUsage.create({
       data: {
@@ -186,13 +191,10 @@ export async function confirmCreditUsage(...args: any[]) {
           reservationId: pending.id,
           action: pending.action,
         },
+        reservationId: pending.id,
       },
     });
-
-    return tx.creditTransaction.update({
-      where: { id: pending.id },
-      data: { status: TransactionStatus.CONFIRMED },
-    });
+    return tx.creditTransaction.findUniqueOrThrow({ where: { id: pending.id } });
   });
 
   return {
@@ -229,26 +231,23 @@ export async function refundCreditUsage(...args: any[]) {
 
     const amount = Math.abs(transaction.creditsAmount);
 
-    if (transaction.status === TransactionStatus.CONFIRMED) {
+    if (transaction.status === TransactionStatus.REFUNDED) return transaction;
+    if (transaction.status === TransactionStatus.CONFIRMED || transaction.status === TransactionStatus.RESERVED) {
+      const wasConfirmed = transaction.status === TransactionStatus.CONFIRMED;
+      const transitioned = await tx.creditTransaction.updateMany({
+        where: { id: transaction.id, status: transaction.status },
+        data: { status: TransactionStatus.REFUNDED, refundedAt: new Date() },
+      });
+      if (transitioned.count !== 1) return tx.creditTransaction.findUniqueOrThrow({ where: { id: transaction.id } });
       await tx.user.update({
         where: { id: transaction.userId },
         data: {
           credits: { increment: amount },
           creditsRemaining: { increment: amount },
-          creditsUsed: { decrement: amount },
+          ...(wasConfirmed ? { creditsUsed: { decrement: amount } } : {}),
         },
       });
-      return tx.creditTransaction.update({
-        where: { id: transaction.id },
-        data: { status: TransactionStatus.REFUNDED },
-      });
-    }
-
-    if (transaction.status === TransactionStatus.PENDING) {
-      return tx.creditTransaction.update({
-        where: { id: transaction.id },
-        data: { status: TransactionStatus.CANCELED },
-      });
+      return tx.creditTransaction.findUniqueOrThrow({ where: { id: transaction.id } });
     }
 
     return transaction;

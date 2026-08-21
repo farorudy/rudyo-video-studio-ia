@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
+import { Prisma } from "@prisma/client";
 import {
   getStripeClient,
   getCreditPack,
@@ -10,6 +11,103 @@ import { getOrCreateUserByEmail } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const PLAN_MONTHLY_CREDITS = {
+  FREE: 0,
+  STARTER: 150,
+  CREATOR: 500,
+  STUDIO: 1500,
+} as const;
+
+async function claimStripeEvent(event: Stripe.Event) {
+  try {
+    await prisma.stripeWebhookEvent.create({
+      data: { stripeEventId: event.id, type: event.type },
+    });
+    return true;
+  } catch (error) {
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") {
+      throw error;
+    }
+
+    const existing = await prisma.stripeWebhookEvent.findUnique({
+      where: { stripeEventId: event.id },
+    });
+    if (!existing || existing.status === "PROCESSED" || existing.status === "PROCESSING") {
+      return false;
+    }
+
+    const retried = await prisma.stripeWebhookEvent.updateMany({
+      where: { stripeEventId: event.id, status: "FAILED" },
+      data: { status: "PROCESSING", errorMessage: null },
+    });
+    return retried.count === 1;
+  }
+}
+
+function invoiceSubscriptionId(invoice: Stripe.Invoice) {
+  const value = (invoice as Stripe.Invoice & {
+    subscription?: string | Stripe.Subscription | null;
+    parent?: { subscription_details?: { subscription?: string | Stripe.Subscription | null } } | null;
+  }).parent?.subscription_details?.subscription ??
+    (invoice as Stripe.Invoice & { subscription?: string | Stripe.Subscription | null }).subscription;
+  return typeof value === "string" ? value : value?.id ?? null;
+}
+
+async function grantSubscriptionInvoice(invoice: Stripe.Invoice) {
+  const customerId = typeof invoice.customer === "string" ? invoice.customer : invoice.customer?.id;
+  const subscriptionId = invoiceSubscriptionId(invoice);
+  if (!customerId || !subscriptionId || invoice.status !== "paid") return;
+
+  const user = await prisma.user.findUnique({ where: { stripeCustomerId: customerId } });
+  if (!user) return;
+  const credits = PLAN_MONTHLY_CREDITS[user.plan];
+  if (credits <= 0) return;
+  const period = invoice.lines.data[0]?.period;
+
+  await prisma.$transaction(async (tx) => {
+    const existing = await tx.subscriptionCreditGrant.findUnique({
+      where: { invoiceId: invoice.id },
+      select: { id: true },
+    });
+    if (existing) return;
+
+    await tx.subscriptionCreditGrant.create({
+      data: {
+        invoiceId: invoice.id,
+        stripeSubscriptionId: subscriptionId,
+        userId: user.id,
+        credits,
+        periodStart: period?.start ? new Date(period.start * 1000) : null,
+        periodEnd: period?.end ? new Date(period.end * 1000) : null,
+      },
+    });
+    await tx.creditTransaction.create({
+      data: {
+        userId: user.id,
+        type: "PURCHASE",
+        action: "OTHER",
+        creditsAmount: credits,
+        description: "Crédits mensuels d’abonnement",
+        idempotencyKey: `stripe-invoice:${invoice.id}`,
+        status: "CONFIRMED",
+        confirmedAt: new Date(),
+        metadata: { invoiceId: invoice.id, subscriptionId },
+      },
+    });
+    await tx.user.update({
+      where: { id: user.id },
+      data: {
+        credits: { increment: credits },
+        creditsTotal: { increment: credits },
+        creditsRemaining: { increment: credits },
+        monthlyLimit: credits,
+        monthlyUsed: 0,
+        billingStatus: "ACTIVE",
+      },
+    });
+  });
+}
 
 function resolveBillingStatus(
   status: string,
@@ -114,6 +212,7 @@ async function resolveCheckoutUser(session: Stripe.Checkout.Session) {
 }
 
 export async function POST(req: NextRequest) {
+  let verifiedEventId: string | null = null;
   try {
     const body = await req.text();
     const signature = req.headers.get("stripe-signature");
@@ -135,6 +234,10 @@ export async function POST(req: NextRequest) {
         { error: "Signature invalide." },
         { status: 400 },
       );
+    }
+    verifiedEventId = event.id;
+    if (!(await claimStripeEvent(event))) {
+      return NextResponse.json({ received: true, duplicate: true });
     }
 
     switch (event.type) {
@@ -305,15 +408,18 @@ export async function POST(req: NextRequest) {
       }
       case "invoice.payment_succeeded": {
         const invoice = event.data.object as Stripe.Invoice;
-        const customerId =
-          typeof invoice.customer === "string"
-            ? invoice.customer
-            : invoice.customer?.id;
-        if (!customerId) break;
-        await prisma.user.updateMany({
-          where: { stripeCustomerId: customerId },
-          data: { billingStatus: "ACTIVE" },
-        });
+        await grantSubscriptionInvoice(invoice);
+        break;
+      }
+      case "invoice.payment_failed": {
+        const invoice = event.data.object as Stripe.Invoice;
+        const customerId = typeof invoice.customer === "string" ? invoice.customer : invoice.customer?.id;
+        if (customerId) {
+          await prisma.user.updateMany({
+            where: { stripeCustomerId: customerId },
+            data: { billingStatus: "PAST_DUE" },
+          });
+        }
         break;
       }
       case "customer.subscription.updated":
@@ -393,8 +499,21 @@ export async function POST(req: NextRequest) {
         break;
     }
 
+    await prisma.stripeWebhookEvent.update({
+      where: { stripeEventId: event.id },
+      data: { status: "PROCESSED", processedAt: new Date() },
+    });
     return NextResponse.json({ received: true });
   } catch (error) {
+    if (verifiedEventId) {
+      await prisma.stripeWebhookEvent.updateMany({
+        where: { stripeEventId: verifiedEventId, status: "PROCESSING" },
+        data: {
+          status: "FAILED",
+          errorMessage: error instanceof Error ? error.message.slice(0, 300) : "Erreur interne",
+        },
+      }).catch(() => undefined);
+    }
     console.error("Stripe webhook processing error:", error);
     return NextResponse.json(
       { error: "Erreur lors du traitement du webhook." },

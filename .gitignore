@@ -54,3 +54,5 @@ media/uploads/
 next-env.d.ts
 
 .fake.env.local
+
+.env*

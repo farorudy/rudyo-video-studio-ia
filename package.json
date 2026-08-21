@@ -7,6 +7,7 @@
     "dev:local": "node scripts/dev-local.mjs",
     "setup:local": "node scripts/setup-local.mjs",
     "setup:openai": "node scripts/setup-openai-local.mjs",
+    "admin:secrets": "node scripts/generate-admin-secrets.mjs",
     "check:local": "node scripts/check-local-env.mjs",
     "build": "prisma generate && next build",
     "start": "next start",

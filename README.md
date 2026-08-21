@@ -81,6 +81,30 @@ Variables d'environnement importantes :
 
 Une fois déployé, les endpoints API (`upload`, `projects`, exports JSON/TXT, vidéo finale, miniature) utilisent le stockage cloud automatiquement.
 
+## Administration sécurisée
+
+Le panneau `/admin` utilise une authentification distincte de la connexion
+utilisateur simplifiée. Générez d'abord les secrets :
+
+```bash
+npm run admin:secrets
+```
+
+Conservez le mot de passe initial dans un gestionnaire de mots de passe, puis
+configurez côté serveur uniquement :
+
+```dotenv
+ADMIN_EMAILS=admin@example.com
+ADMIN_PASSWORD_SALT=<valeur générée>
+ADMIN_PASSWORD_HASH=<valeur générée>
+ADMIN_SESSION_SECRET=<valeur générée>
+```
+
+Ne préfixez jamais ces variables par `NEXT_PUBLIC_`. L'administration permet
+de consulter les comptes, modifier les plans et statuts, ajuster les crédits et
+réinitialiser l'usage mensuel. Chaque modification est inscrite dans
+`AdminAuditLog`.
+
 ## Note montage FFmpeg
 
 Le montage s'appuie sur `ffmpeg` / `ffprobe` via les scripts `scripts/montage.js` et `scripts/montage-advanced.js`.

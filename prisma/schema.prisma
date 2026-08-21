@@ -171,3 +171,15 @@ model CreditPack {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }
+
+model AdminAuditLog {
+  id            String   @id @default(cuid())
+  adminSubject  String
+  action        String
+  targetUserId  String?
+  metadata      Json?
+  createdAt     DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([targetUserId, createdAt])
+}

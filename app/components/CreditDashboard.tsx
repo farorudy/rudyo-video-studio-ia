@@ -94,7 +94,7 @@ export default function CreditDashboard() {
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <a
-            href="/pricing"
+            href="/credits/acheter"
             className="rounded-2xl bg-emerald-500 px-5 py-3 text-center text-sm font-semibold text-slate-950 transition hover:bg-emerald-400"
           >
             Acheter des crédits

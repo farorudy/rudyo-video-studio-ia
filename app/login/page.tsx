@@ -142,6 +142,15 @@ export default function LoginPage() {
               Utiliser une autre adresse
             </button>
           ) : null}
+
+          {!challengeRequested ? (
+            <p className="text-center text-sm text-slate-400">
+              Pas encore de compte ?{" "}
+              <Link href="/inscription" className="font-bold text-cyan-300 hover:text-cyan-200">
+                S’inscrire gratuitement
+              </Link>
+            </p>
+          ) : null}
         </form>
       </section>
     </main>

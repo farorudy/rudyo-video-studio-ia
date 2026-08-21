@@ -38,12 +38,20 @@ export default function Navigation() {
                 {link.label}
               </Link>
             ))}
-            <Link
-              href="/login"
-              className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-100 transition hover:border-cyan-400"
-            >
-              Connexion
-            </Link>
+            <div className="flex items-center gap-2">
+              <Link
+                href="/login"
+                className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-100 transition hover:border-cyan-400"
+              >
+                Connexion
+              </Link>
+              <Link
+                href="/inscription"
+                className="rounded-lg bg-cyan-400 px-4 py-2 text-sm font-black text-slate-950 transition hover:bg-cyan-300"
+              >
+                Inscription
+              </Link>
+            </div>
           </div>
 
           <button
@@ -70,10 +78,17 @@ export default function Navigation() {
             ))}
             <Link
               href="/login"
-              className="rounded-lg bg-cyan-400 px-3 py-2 text-center text-sm font-black text-slate-950"
+              className="rounded-lg border border-slate-700 px-3 py-2 text-center text-sm font-semibold text-slate-100"
               onClick={() => setMobileMenuOpen(false)}
             >
               Connexion
+            </Link>
+            <Link
+              href="/inscription"
+              className="rounded-lg bg-cyan-400 px-3 py-2 text-center text-sm font-black text-slate-950"
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              Créer un compte
             </Link>
           </div>
         ) : null}

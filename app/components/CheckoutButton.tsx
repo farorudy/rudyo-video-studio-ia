@@ -7,6 +7,7 @@ type Props = {
   mode: "credit" | "subscription";
   children: React.ReactNode;
   className?: string;
+  unauthenticatedHref?: string;
 };
 
 export default function CheckoutButton({
@@ -14,6 +15,7 @@ export default function CheckoutButton({
   mode,
   children,
   className,
+  unauthenticatedHref = "/login",
 }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -34,7 +36,7 @@ export default function CheckoutButton({
       const data = await response.json();
 
       if (response.status === 401) {
-        window.location.href = "/login";
+        window.location.href = unauthenticatedHref;
         return;
       }
 

@@ -7,6 +7,7 @@ export const CREDIT_COSTS = {
   audio_analysis: 5,
   clip_lyrics: 20,
   quick_clip: 20,
+  seedance_video: 20,
   training_video: 5,
   animated_flyer: 5,
   promo_video: 5,
@@ -26,6 +27,7 @@ export const CREDIT_TOOL_LABELS: Record<CreditTool, string> = {
   audio_analysis: "Analyse audio",
   clip_lyrics: "Clip lyrics",
   quick_clip: "Clip rapide",
+  seedance_video: "Vidéo Seedance",
   training_video: "Vidéo formation",
   animated_flyer: "Flyer animé",
   promo_video: "Vidéo promotionnelle",
@@ -52,6 +54,8 @@ export const CREDIT_TOOL_DESCRIPTIONS: Record<CreditTool, string> = {
     "Préparer un projet complet de clip paroles avec structure, storyboard et prompts.",
   quick_clip:
     "Créer rapidement une structure de clip à partir dune musique ou dune idée.",
+  seedance_video:
+    "Générer une vidéo réelle avec BytePlus Seedance à partir de votre description.",
   training_video:
     "Transformer un cours ou une formation en plan vidéo pédagogique.",
   animated_flyer:
@@ -65,6 +69,7 @@ export const CREDIT_TOOL_DESCRIPTIONS: Record<CreditTool, string> = {
 };
 
 export const CREDIT_TOOLS: CreditTool[] = [
+  "seedance_video",
   "quick_clip",
   "clip_lyrics",
   "storyboard",

@@ -62,6 +62,10 @@ Variables d'environnement importantes :
 - `CLOUD_STORAGE_PREFIX` (optionnel): préfixe des objets Blob (par défaut `rudyo-video-studio`).
 - `REPLICATE_API_TOKEN` (optionnel): génération vidéo automatisée.
 - `REPLICATE_VIDEO_MODEL` (optionnel): modèle Replicate, ex. `bytedance/seedance-1-pro`.
+- `ARK_API_KEY` (recommandé): clé serveur BytePlus ModelArk pour générer les clips avec Seedance.
+- `BYTEPLUS_VIDEO_MODEL` (optionnel): modèle Seedance, par défaut `dreamina-seedance-2-0-260128`.
+- `BYTEPLUS_BASE_URL` (optionnel): URL régionale ModelArk, par défaut `https://ark.ap-southeast.bytepluses.com/api/v3`.
+- `BYTEPLUS_VIDEO_RESOLUTION`, `BYTEPLUS_VIDEO_RATIO`, `BYTEPLUS_GENERATE_AUDIO` et `BYTEPLUS_WATERMARK` (optionnels): paramètres de sortie Seedance.
 - `OLLAMA_BASE_URL` et `OLLAMA_MODEL` (optionnel): amélioration locale via Ollama. L'application reste utilisable sans eux.
 - `DEFAULT_AI_PROVIDER` (optionnel): `ollama`, `openai` ou `blackbox`.
 - `OPENAI_API_KEY` et `OPENAI_MODEL` (optionnel): génération storyboard / prompts via OpenAI.

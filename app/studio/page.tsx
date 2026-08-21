@@ -1,6 +1,6 @@
-﻿"use client";
+"use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CREDIT_COSTS,
   CREDIT_TOOL_DESCRIPTIONS,
@@ -19,6 +19,19 @@ type GenerationResult = {
   redirectTo?: string;
   requiredCredits?: number;
   currentCredits?: number;
+  videoJob?: VideoJob;
+};
+
+type VideoJob = {
+  clipId: number;
+  clipName: string;
+  status: string;
+  provider: string;
+  savedTo?: string;
+  outputUrl?: string;
+  getUrl?: string;
+  predictionId?: string;
+  error?: string;
 };
 
 export default function StudioPage() {
@@ -32,11 +45,21 @@ export default function StudioPage() {
   const [language, setLanguage] = useState("français");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<GenerationResult | null>(null);
-
-  const fakeCreditBalance = 18;
+  const [creditBalance, setCreditBalance] = useState(0);
 
   const selectedCost = CREDIT_COSTS[selectedTool];
-  const hasEnoughCredits = fakeCreditBalance >= selectedCost;
+  const hasEnoughCredits = creditBalance >= selectedCost;
+
+  useEffect(() => {
+    fetch("/api/credits/balance", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((data) => {
+        if (data.success) {
+          setCreditBalance(Number(data.creditsRemaining) || 0);
+        }
+      })
+      .catch(() => undefined);
+  }, []);
 
   const currentStep = useMemo(() => {
     if (result?.success) return 4;
@@ -47,10 +70,68 @@ export default function StudioPage() {
   }, [result, loading, hasEnoughCredits, selectedTool]);
 
   async function handleGenerate() {
+    if (
+      selectedTool === "seedance_video" &&
+      !window.confirm(
+        `Lancer une génération Seedance pour ${selectedCost} crédits ?`,
+      )
+    ) {
+      return;
+    }
+
     setLoading(true);
     setResult(null);
 
     try {
+      if (selectedTool === "seedance_video") {
+        const prompt = [
+          description.trim(),
+          `Style visuel : ${style}.`,
+          audience.trim() ? `Public cible : ${audience}.` : "",
+          `Format de diffusion : ${platform}.`,
+          `Langue : ${language}.`,
+        ]
+          .filter(Boolean)
+          .join(" ");
+        const response = await fetch("/api/generate-videos", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            titre: title || "Vidéo Seedance",
+            clips: [
+              {
+                id: 1,
+                nom: title || "Vidéo Seedance",
+                duree: duration,
+                description,
+                promptVideo: prompt,
+              },
+            ],
+          }),
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+          setResult({
+            success: false,
+            error: data.error || "Erreur lors du lancement de Seedance.",
+            redirectTo: data.redirectTo,
+          });
+          return;
+        }
+
+        const videoJob = data.result.jobs[0] as VideoJob;
+        setCreditBalance((balance) => Math.max(0, balance - selectedCost));
+        setResult({
+          success: true,
+          provider: data.result.provider,
+          result: "La vidéo Seedance est en cours de génération.",
+          videoJob,
+        });
+        void suivreVideoSeedance(videoJob, selectedCost);
+        return;
+      }
+
       const response = await fetch("/api/ai/generate", {
         method: "POST",
         headers: {
@@ -84,6 +165,7 @@ export default function StudioPage() {
       }
 
       setResult(data);
+      setCreditBalance((balance) => Math.max(0, balance - selectedCost));
     } catch {
       setResult({
         success: false,
@@ -91,6 +173,54 @@ export default function StudioPage() {
       });
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function suivreVideoSeedance(
+    initialJob: VideoJob,
+    chargedCredits: number,
+  ) {
+    let currentJob = initialJob;
+
+    for (let attempt = 0; attempt < 90; attempt += 1) {
+      if (
+        ["succeeded", "failed", "cancelled", "expired"].includes(
+          currentJob.status,
+        ) ||
+        !currentJob.getUrl
+      ) {
+        return;
+      }
+
+      await new Promise((resolve) => window.setTimeout(resolve, 10_000));
+
+      try {
+        const response = await fetch(currentJob.getUrl, { cache: "no-store" });
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+          continue;
+        }
+
+        currentJob = data.job as VideoJob;
+        const failed = currentJob.status === "failed";
+        setResult({
+          success: !failed,
+          provider: currentJob.provider,
+          result:
+            currentJob.status === "succeeded"
+              ? "Votre vidéo Seedance est prête."
+              : `Génération Seedance : ${currentJob.status}.`,
+          error: failed ? currentJob.error : undefined,
+          videoJob: currentJob,
+        });
+
+        if (failed) {
+          setCreditBalance((balance) => balance + chargedCredits);
+        }
+      } catch {
+        // Une erreur réseau temporaire sera retentée au prochain passage.
+      }
     }
   }
 
@@ -138,7 +268,7 @@ export default function StudioPage() {
             <div className="rounded-3xl border border-cyan-400/30 bg-slate-900 p-6">
               <p className="text-sm text-slate-400">Crédits disponibles</p>
               <p className="mt-2 text-5xl font-black text-cyan-300">
-                {fakeCreditBalance}
+                {creditBalance}
               </p>
               <p className="mt-3 text-sm text-slate-300">
                 Vos crédits servent à générer vos contenus IA.
@@ -301,7 +431,7 @@ export default function StudioPage() {
                     hasEnoughCredits ? "text-emerald-300" : "text-red-300",
                   ].join(" ")}
                 >
-                  {fakeCreditBalance - selectedCost} crédits
+                  {creditBalance - selectedCost} crédits
                 </p>
               </div>
             </div>
@@ -371,9 +501,32 @@ export default function StudioPage() {
                 )}
               </div>
             ) : (
-              <pre className="mt-6 whitespace-pre-wrap rounded-2xl border border-slate-800 bg-slate-900 p-5 text-sm leading-7 text-slate-100">
-                {result.result}
-              </pre>
+              <div className="mt-6 space-y-4">
+                <pre className="whitespace-pre-wrap rounded-2xl border border-slate-800 bg-slate-900 p-5 text-sm leading-7 text-slate-100">
+                  {result.result}
+                </pre>
+
+                {result.videoJob ? (
+                  <div className="rounded-2xl border border-cyan-400/30 bg-slate-900 p-5">
+                    <p className="font-bold text-cyan-300">
+                      Statut : {result.videoJob.status}
+                    </p>
+                    {result.videoJob.outputUrl || result.videoJob.savedTo ? (
+                      <video
+                        controls
+                        className="mt-4 w-full rounded-xl"
+                        src={
+                          result.videoJob.savedTo || result.videoJob.outputUrl
+                        }
+                      />
+                    ) : (
+                      <p className="mt-3 text-sm text-slate-400">
+                        Seedance prépare votre vidéo. Le suivi est automatique.
+                      </p>
+                    )}
+                  </div>
+                ) : null}
+              </div>
             )}
           </section>
         )}

@@ -12,6 +12,7 @@ export const ACTION_QUALITY_SUGGESTION: Record<CreditAction, AiQuality> = {
   audio_analysis: "economy",
   clip_lyrics: "balanced",
   quick_clip: "economy",
+  seedance_video: "premium",
   training_video: "balanced",
   animated_flyer: "economy",
   promo_video: "balanced",

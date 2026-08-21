@@ -5,6 +5,7 @@ import type {
   StoryboardGenerateRequest,
   StoryboardGenerateResponse,
 } from "@/lib/ai/generate";
+import type { Tone, VisualStyle } from "@/lib/ai/types";
 
 interface AIModeMeta {
   label: string;
@@ -60,8 +61,8 @@ export function StoryboardGeneratorForm() {
       format:
         (formData.get("format") as "vertical" | "horizontal" | "square") ||
         "horizontal",
-      style: (formData.get("style") as string) || "cinéma",
-      tone: (formData.get("tone") as string) || "professionnel",
+      style: (formData.get("style") as VisualStyle) || "cinéma",
+      tone: (formData.get("tone") as Tone) || "professionnel",
       customInstructions: formData.get("instructions") as string,
     };
 

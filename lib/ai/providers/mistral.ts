@@ -28,7 +28,19 @@ export async function generateWithMistral(
       responseFormat: { type: "json_object" },
     });
 
-    const content = response.choices[0].message.content;
+    const rawContent = response.choices?.[0]?.message?.content;
+    const content =
+      typeof rawContent === "string"
+        ? rawContent
+        : Array.isArray(rawContent)
+          ? rawContent
+              .map((chunk) =>
+                "text" in chunk && typeof chunk.text === "string"
+                  ? chunk.text
+                  : "",
+              )
+              .join("")
+          : "";
     if (!content) {
       throw new Error("Empty response from Mistral");
     }

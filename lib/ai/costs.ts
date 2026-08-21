@@ -17,6 +17,7 @@ export const ACTION_PROVIDER_PRIORITY: Record<CreditAction, AiProviderName[]> =
     audio_analysis: ["ollama", "openai", "mistral"],
     clip_lyrics: ["openai", "mistral", "ollama"],
     quick_clip: ["ollama", "openai", "mistral"],
+    seedance_video: ["openai", "mistral", "ollama"],
     training_video: ["openai", "mistral", "ollama"],
     animated_flyer: ["ollama", "openai", "mistral"],
     promo_video: ["openai", "mistral", "ollama"],

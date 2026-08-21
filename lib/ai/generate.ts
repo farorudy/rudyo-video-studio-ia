@@ -75,6 +75,7 @@ function getEstimatedCredits(action: CreditAction) {
     audio_analysis: 2,
     clip_lyrics: 8,
     quick_clip: 5,
+    seedance_video: 20,
     training_video: 8,
     animated_flyer: 5,
     promo_video: 8,
@@ -325,6 +326,7 @@ export async function generateWithBestProvider(
 
 export type StoryboardGenerateRequest = GenerateRequest & {
   userId?: string;
+  provider?: string;
 };
 
 export type StoryboardGenerateResponse = AIResponse & {

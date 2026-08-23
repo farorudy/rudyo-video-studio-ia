@@ -33,7 +33,7 @@ export default function BuyCreditsPage() {
               Paiement unique, sans renouvellement automatique. Les crédits sont ajoutés à votre compte après confirmation sécurisée de Stripe.
             </p>
           </div>
-          <Link href="/credits" className="rounded-2xl border border-slate-700 bg-slate-900 px-5 py-3 text-center text-sm font-bold hover:border-cyan-400">
+          <Link href="/dashboard" className="rounded-2xl border border-slate-700 bg-slate-900 px-5 py-3 text-center text-sm font-bold hover:border-cyan-400">
             Voir mon solde
           </Link>
         </div>

@@ -18,3 +18,6 @@ test("un modèle explicitement inconnu est refusé", () => {
   assert.equal(getSeedanceModel("modele-invente"), undefined);
 });
 
+test("un modèle connu mais non activé côté serveur est refusé", () => {
+  assert.throws(() => chooseSeedanceModel({ requestedModelId: "dreamina-seedance-2-5-260628", durationSeconds: 5, referenceCount: 0 }));
+});

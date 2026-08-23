@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { toPublicGenerationTask } from "@/lib/seedance/public-task";
 
 const updateSchema = z.object({
   title: z.string().trim().min(2).max(120).optional(),
@@ -30,12 +31,37 @@ async function ownedProject(id: string, userId: string) {
 }
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const user = await getCurrentUser(request);
-  if (!user) return NextResponse.json({ error: "Authentification requise." }, { status: 401 });
-  const { id } = await params;
-  const project = await ownedProject(id, user.id);
-  if (!project) return NextResponse.json({ error: "Projet introuvable." }, { status: 404 });
-  return NextResponse.json({ success: true, project });
+  try {
+    const user = await getCurrentUser(request);
+    if (!user || user.localSession) return NextResponse.json({ success: false, error: "Authentification requise." }, { status: 401 });
+    const { id } = await params;
+    const project = await ownedProject(id, user.id);
+    if (!project) return NextResponse.json({ success: false, error: "Projet introuvable." }, { status: 404 });
+    return NextResponse.json({
+      success: true,
+      project: {
+        ...project,
+        mediaAssets: project.mediaAssets.map((asset) => ({
+          ...asset,
+          storageKey: undefined,
+          url: undefined,
+          downloadUrl: `/api/projects/${encodeURIComponent(project.id)}/assets/${encodeURIComponent(asset.id)}/download`,
+        })),
+        scenes: project.scenes.map((scene) => ({
+          ...scene,
+          generationTasks: scene.generationTasks.map(toPublicGenerationTask),
+          variants: scene.variants.map((variant) => ({
+            ...variant,
+            videoUrl: `/api/seedance/tasks/${encodeURIComponent(variant.taskId)}/download`,
+            thumbnailUrl: null,
+          })),
+        })),
+      },
+    }, { headers: { "Cache-Control": "private, no-store" } });
+  } catch (error) {
+    console.error("Seedance project read failed", error instanceof Error ? error.message : error);
+    return NextResponse.json({ success: false, error: "Impossible de charger le projet." }, { status: 500 });
+  }
 }
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -55,4 +81,3 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   }
   return NextResponse.json({ success: true, project });
 }
-

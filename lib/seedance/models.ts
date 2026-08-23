@@ -25,6 +25,8 @@ export type SeedanceModel = {
   note?: string;
 };
 
+const durations = (maximum: number) => Array.from({ length: maximum - 3 }, (_, index) => index + 4);
+
 const modernCapabilities: SeedanceCapabilities = {
   textToVideo: true,
   imageToVideo: true,
@@ -34,7 +36,7 @@ const modernCapabilities: SeedanceCapabilities = {
   audioReference: true,
   generatedAudio: true,
   videoEditOrExtend: "unknown",
-  durations: [5, 10, 15],
+  durations: durations(15),
   resolutions: ["720p", "1080p"],
   ratios: ["16:9", "9:16", "1:1", "adaptive"],
 };
@@ -47,7 +49,7 @@ export const SEEDANCE_MODELS: SeedanceModel[] = [
     family: "2.5",
     tier: "hero",
     availability: "verification_required",
-    capabilities: modernCapabilities,
+    capabilities: { ...modernCapabilities, durations: durations(30) },
     note: "À privilégier pour les plans principaux après activation dans ModelArk.",
   },
   {
@@ -71,7 +73,7 @@ export const SEEDANCE_MODELS: SeedanceModel[] = [
   {
     key: "seedance-2.0-mini",
     label: "Seedance 2.0 Mini",
-    modelId: "dreamina-seedance-2-0-mini-260128",
+    modelId: "dreamina-seedance-2-0-mini-260615",
     family: "2.0",
     tier: "draft",
     availability: "verification_required",
@@ -139,13 +141,13 @@ export function chooseSeedanceModel(input: {
 }) {
   if (input.requestedModelId && input.requestedModelId !== "auto") {
     const requested = getSeedanceModel(input.requestedModelId);
-    if (!requested || requested.availability === "unavailable") {
+    if (!requested || requested.availability !== "active") {
       throw new Error("Le modèle Seedance demandé n’est pas disponible dans la configuration Rudyo.");
     }
     return requested;
   }
 
-  const models = listAvailableSeedanceModels();
+  const models = listAvailableSeedanceModels().filter((model) => model.availability === "active");
   const preferredTier = input.preview
     ? "preview"
     : input.economicalDraft
@@ -155,10 +157,8 @@ export function chooseSeedanceModel(input: {
         : "quality";
 
   return (
-    models.find((model) => model.tier === preferredTier && model.availability === "active") ??
     models.find((model) => model.tier === preferredTier) ??
     models.find((model) => model.tier === "quality") ??
     models[0]
   );
 }
-

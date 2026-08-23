@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { sendContactNotification } from "@/lib/contact-email";
 import {
   beginIdempotentRequest,
   clientIp,
@@ -70,11 +71,29 @@ export async function POST(request: NextRequest) {
       },
       select: { id: true },
     });
+    try {
+      await sendContactNotification({
+        requestId: saved.id,
+        name: `${parsed.data.prenom} ${parsed.data.nom}`,
+        email: parsed.data.email,
+        phone: parsed.data.telephone,
+        videoType: parsed.data.typeVideo,
+        objective: parsed.data.objectif,
+        deadline: parsed.data.dateLimite,
+        budget: parsed.data.budget,
+        filesNote: parsed.data.fichiers,
+        message: parsed.data.message,
+      });
+      await prisma.contactRequest.update({ where: { id: saved.id }, data: { status: "NOTIFIED" } });
+    } catch {
+      await prisma.contactRequest.update({ where: { id: saved.id }, data: { status: "EMAIL_FAILED" } });
+      throw new Error("La demande a été sauvegardée, mais sa transmission a échoué. Réessayez avec le même identifiant.");
+    }
     const response = { success: true, message: "Demande enregistrée.", requestId: saved.id };
     await finishIdempotentRequest(idempotency.record.id, 201, response);
     return NextResponse.json(response, { status: 201 });
   } catch (error) {
-    const message = error instanceof Error && (error.message.includes("anti-robot") || error.message.includes("invalides"))
+    const message = error instanceof Error && (error.message.includes("anti-robot") || error.message.includes("invalides") || error.message.includes("transmission"))
       ? error.message : "Impossible d’enregistrer la demande pour le moment.";
     if (idempotencyId) await finishIdempotentRequest(idempotencyId, 400, { error: message }).catch(() => undefined);
     return NextResponse.json({ error: message }, { status: 400 });

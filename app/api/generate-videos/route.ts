@@ -13,6 +13,7 @@ import {
   reserveCredits,
 } from "@/lib/credit-utils";
 import { CREDIT_COSTS } from "@/lib/credit-costs";
+import { enforceApiRateLimit } from "@/lib/request-security";
 
 export const runtime = "nodejs";
 
@@ -144,10 +145,10 @@ function trackingPayload(params: {
 }
 
 function signTrackingPayload(payload: string) {
-  const secret = process.env.AUTH_COOKIE_SECRET?.trim();
+  const secret = process.env.AUTH_SECRET?.trim() || process.env.AUTH_COOKIE_SECRET?.trim();
 
   if (!secret) {
-    throw new Error("AUTH_COOKIE_SECRET n'est pas configuré.");
+    throw new Error("AUTH_SECRET n'est pas configuré.");
   }
 
   return createHmac("sha256", secret).update(payload).digest("hex");
@@ -314,12 +315,12 @@ export async function GET(req: NextRequest) {
 
     if (task.status === "succeeded" && outputUrl) {
       const storageKey = `plans/${user.id}/${safeClipName(clipName, clipId)}.mp4`;
-      const stored = await putStorageBuffer(
+      await putStorageBuffer(
         storageKey,
         await fetchRemoteVideo(outputUrl),
-        { contentType: "video/mp4" },
+        { contentType: "video/mp4", access: "private" },
       );
-      savedTo = toClientFileRef(storageKey, stored.url);
+      savedTo = toClientFileRef(storageKey);
     } else if (failed) {
       await refundCreditUsage(reservationId).catch(() => undefined);
     }
@@ -365,6 +366,14 @@ export async function POST(req: NextRequest) {
         { status: 401 },
       );
     }
+    await enforceApiRateLimit(req, "legacy-generate-videos", user.id, 2, 60_000);
+    if (process.env.ENABLE_LEGACY_GENERATE_VIDEOS !== "true") {
+      return NextResponse.json({
+        success: false,
+        error: "Cette ancienne route est désactivée. Utilisez le Studio Seedance sécurisé.",
+        redirectTo: "/studio-clip-seedance",
+      }, { status: 410 });
+    }
 
     if (!process.env.ARK_API_KEY?.trim()) {
       return NextResponse.json(
@@ -401,14 +410,14 @@ export async function POST(req: NextRequest) {
 
     const baseName = slugify(body.titre?.trim() || "clip-video");
     const manifestKey = `export/${user.id}/${baseName}-generation.json`;
-    const manifestStored = await putStorageText(
+    await putStorageText(
       manifestKey,
       JSON.stringify(
         { provider: "byteplus", model, createdAt: new Date().toISOString(), jobs },
         null,
         2,
       ),
-      { contentType: "application/json; charset=utf-8" },
+      { contentType: "application/json; charset=utf-8", access: "private" },
     );
 
     return NextResponse.json({
@@ -417,7 +426,7 @@ export async function POST(req: NextRequest) {
         provider: "byteplus",
         model,
         jobs,
-        manifest: toClientFileRef(manifestKey, manifestStored.url),
+        manifest: toClientFileRef(manifestKey),
       },
     });
   } catch (error) {

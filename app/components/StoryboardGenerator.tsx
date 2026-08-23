@@ -395,7 +395,7 @@ export function StoryboardGeneratorForm() {
                           🎬 Scènes ({result.content.scenes.length})
                         </h3>
                         <div className="space-y-3">
-                          {result.content.scenes.map((scene, idx) => (
+                          {result.content.scenes.map((scene) => (
                             <div
                               key={scene.id}
                               className="bg-slate-700/30 p-3 rounded border border-slate-600"

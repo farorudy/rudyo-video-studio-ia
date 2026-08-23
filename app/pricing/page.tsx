@@ -66,15 +66,15 @@ export default function PricingPage() {
       <section className="mx-auto max-w-7xl px-4 pb-12 pt-24 md:px-8">
         <div className="max-w-4xl">
           <p className="mb-4 inline-flex rounded-full border border-cyan-400/40 bg-cyan-400/10 px-4 py-2 text-sm font-semibold text-cyan-200">
-            Tarifs Rudyo Video Studio IA
+            Tarifs Rudyo AI
           </p>
           <h1 className="text-4xl font-black tracking-tight md:text-6xl">
             Commencez gratuitement, payez quand le projet prend de la valeur.
           </h1>
           <p className="mt-5 max-w-3xl text-lg leading-8 text-slate-300">
-            Achetez des tokens pour generer des livrables video, prenez un
+            Achetez des crédits Rudyo pour générer des livrables vidéo, prenez un
             abonnement si vous produisez regulierement, ou confiez la realisation
-            a Farozik.
+            à Rudyo AI.
           </p>
           <div className="mt-8 flex flex-wrap gap-4">
             <Link
@@ -97,7 +97,7 @@ export default function PricingPage() {
         <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.24em] text-cyan-300">
-              Packs tokens
+              Packs de crédits Rudyo
             </p>
             <h2 className="mt-2 text-3xl font-black md:text-5xl">
               Recharge securisee par Stripe Checkout.
@@ -105,7 +105,7 @@ export default function PricingPage() {
           </div>
           {firstPurchaseBonus > 0 ? (
             <p className="max-w-sm rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-4 py-3 text-sm font-semibold text-emerald-100">
-              Bonus premier achat : +{firstPurchaseBonus} tokens ajoutes par le
+              Bonus premier achat : +{firstPurchaseBonus} crédits Rudyo ajoutés par le
               webhook apres paiement.
             </p>
           ) : null}
@@ -121,7 +121,7 @@ export default function PricingPage() {
               {formatEuros(pack.amount)}
             </p>
             <p className="mt-2 font-bold text-white">
-              {pack.credits.toLocaleString("fr-FR")} tokens
+              {pack.credits.toLocaleString("fr-FR")} crédits Rudyo
             </p>
             <p className="mt-4 min-h-20 text-sm leading-6 text-slate-300">
               {pack.description}
@@ -253,7 +253,7 @@ export default function PricingPage() {
         <div className="mb-7 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.24em] text-cyan-300">
-              Services Farozik
+              Services Rudyo AI
             </p>
             <h2 className="mt-3 text-3xl font-black md:text-5xl">
               Besoin d'une video livree cle en main ?

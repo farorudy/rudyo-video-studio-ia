@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Navigation from "@/app/components/Navigation";
 import ProjectsList from "@/app/components/ProjectsList";
+import SavedResults from "@/app/components/SavedResults";
 
 export default function ProjectsPage() {
   return (
@@ -28,6 +29,7 @@ export default function ProjectsPage() {
           </Link>
         </div>
         <ProjectsList />
+        <div className="mt-8"><SavedResults /></div>
       </section>
     </main>
   );

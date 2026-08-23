@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { cancelGenerationTask, syncGenerationTask } from "@/lib/seedance/service";
+import { toPublicGenerationTask } from "@/lib/seedance/public-task";
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser(request);
@@ -8,7 +9,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   try {
     const { id } = await params;
     const task = await syncGenerationTask(id, user.id);
-    return NextResponse.json({ success: true, task, demo: task.provider === "byteplus-demo" });
+    return NextResponse.json({ success: true, task: toPublicGenerationTask(task), demo: task.provider === "byteplus-demo" });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Suivi impossible." }, { status: 502 });
   }
@@ -20,9 +21,8 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
   try {
     const { id } = await params;
     const task = await cancelGenerationTask(id, user.id);
-    return NextResponse.json({ success: true, task });
+    return NextResponse.json({ success: true, task: toPublicGenerationTask(task) });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Annulation impossible." }, { status: 409 });
   }
 }
-

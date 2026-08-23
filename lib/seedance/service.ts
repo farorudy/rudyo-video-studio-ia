@@ -1,7 +1,6 @@
 import "server-only";
 
 import { GenerationTaskStatus, MediaAssetType, StoryboardSceneStatus } from "@prisma/client";
-import { CREDIT_COSTS } from "@/lib/credit-costs";
 import { confirmCreditUsage, refundCreditUsage, reserveCredits } from "@/lib/credit-utils";
 import { prisma } from "@/lib/prisma";
 import { signedMediaUrl } from "@/lib/media-access";
@@ -15,12 +14,12 @@ import {
   type CreateBytePlusTaskInput,
 } from "@/lib/seedance/client";
 import { chooseSeedanceModel } from "@/lib/seedance/models";
+import { quoteSeedanceCredits } from "@/lib/seedance/pricing";
 
 const TERMINAL_FAILURES = new Set<GenerationTaskStatus>([
   GenerationTaskStatus.FAILED,
-  GenerationTaskStatus.REJECTED,
-  GenerationTaskStatus.CANCELED,
-  GenerationTaskStatus.EXPIRED,
+  GenerationTaskStatus.CANCELLED,
+  GenerationTaskStatus.REFUNDED,
 ]);
 
 function safeMessage(error: unknown) {
@@ -58,24 +57,18 @@ function costUsd(modelId: string, tokens?: number | null) {
 }
 
 function mapRemoteStatus(task: BytePlusTask): GenerationTaskStatus {
-  if (!task.status) return GenerationTaskStatus.QUEUED;
-  if (task.status === "queued") return GenerationTaskStatus.QUEUED;
-  if (task.status === "running") return GenerationTaskStatus.RUNNING;
+  if (!task.status) return GenerationTaskStatus.PROCESSING;
+  if (task.status === "queued" || task.status === "running") return GenerationTaskStatus.PROCESSING;
   if (task.status === "succeeded") return GenerationTaskStatus.SUCCEEDED;
-  if (task.status === "cancelled") return GenerationTaskStatus.CANCELED;
-  if (task.status === "expired") return GenerationTaskStatus.EXPIRED;
-  return task.error?.code?.toLowerCase().includes("risk")
-    ? GenerationTaskStatus.REJECTED
-    : GenerationTaskStatus.FAILED;
+  if (task.status === "cancelled") return GenerationTaskStatus.CANCELLED;
+  return GenerationTaskStatus.FAILED;
 }
 
 function mapSceneStatus(status: GenerationTaskStatus): StoryboardSceneStatus {
-  if (status === GenerationTaskStatus.QUEUED) return StoryboardSceneStatus.QUEUED;
-  if (status === GenerationTaskStatus.RUNNING) return StoryboardSceneStatus.RUNNING;
+  if (status === GenerationTaskStatus.PROCESSING) return StoryboardSceneStatus.RUNNING;
   if (status === GenerationTaskStatus.SUCCEEDED) return StoryboardSceneStatus.COMPLETED;
-  if (status === GenerationTaskStatus.REJECTED) return StoryboardSceneStatus.REJECTED;
-  if (status === GenerationTaskStatus.CANCELED) return StoryboardSceneStatus.CANCELED;
-  if (status === GenerationTaskStatus.FAILED || status === GenerationTaskStatus.EXPIRED) return StoryboardSceneStatus.FAILED;
+  if (status === GenerationTaskStatus.CANCELLED) return StoryboardSceneStatus.CANCELED;
+  if (status === GenerationTaskStatus.FAILED || status === GenerationTaskStatus.REFUNDED) return StoryboardSceneStatus.FAILED;
   return StoryboardSceneStatus.SUBMITTED;
 }
 
@@ -184,7 +177,15 @@ export async function startSceneGeneration(input: StartSceneGenerationInput) {
     watermark: scene.watermark,
     return_last_frame: true,
   };
-  const credits = CREDIT_COSTS.seedance_video;
+  const quote = quoteSeedanceCredits({
+    modelId: model.modelId,
+    durationSeconds: scene.durationSeconds,
+    resolution: scene.resolution,
+    ratio: scene.ratio,
+    generateAudio: scene.generateAudio,
+    watermark: scene.watermark,
+  });
+  const credits = quote.totalCredits;
   await assertRateAndBudget(input.userId, scene.projectId, credits);
 
   const task = await prisma.generationTask.create({
@@ -195,7 +196,7 @@ export async function startSceneGeneration(input: StartSceneGenerationInput) {
       idempotencyKey: input.idempotencyKey,
       provider: isBytePlusDemoMode() ? "byteplus-demo" : "byteplus",
       modelId: model.modelId,
-      requestPayload: requestPayload as object,
+      requestPayload: { ...requestPayload, rudyoQuote: quote } as object,
       estimatedCredits: isBytePlusDemoMode() ? 0 : credits,
       estimatedCostUsd: null,
     },
@@ -224,7 +225,7 @@ export async function startSceneGeneration(input: StartSceneGenerationInput) {
     metadata: { taskId: task.id, projectId: scene.projectId },
     idempotencyKey: `seedance:${input.idempotencyKey}`,
   });
-  await prisma.generationTask.update({ where: { id: task.id }, data: { status: GenerationTaskStatus.SUBMITTING, creditReservationId: reservation.id } });
+  await prisma.generationTask.update({ where: { id: task.id }, data: { status: GenerationTaskStatus.SUBMITTED, creditReservationId: reservation.id } });
 
   let remote: BytePlusTask;
   try {
@@ -235,7 +236,7 @@ export async function startSceneGeneration(input: StartSceneGenerationInput) {
     return prisma.generationTask.update({
       where: { id: task.id },
       data: {
-        status: unknown ? GenerationTaskStatus.SUBMISSION_UNKNOWN : GenerationTaskStatus.FAILED,
+        status: unknown ? GenerationTaskStatus.SUBMITTED : GenerationTaskStatus.REFUNDED,
         errorCode: error instanceof BytePlusApiError ? error.code : "generation_error",
         errorMessage: safeMessage(error),
       },
@@ -261,9 +262,10 @@ async function downloadPermanentVideo(taskId: string, userId: string, sourceUrl:
   if (declaredSize > 500 * 1024 * 1024) throw new Error("La vidéo générée dépasse la limite de stockage Rudyo.");
   const buffer = Buffer.from(await response.arrayBuffer());
   if (buffer.byteLength > 500 * 1024 * 1024) throw new Error("La vidéo générée dépasse la limite de stockage Rudyo.");
-  const key = `seedance/${userId}/${taskId}/video.mp4`;
-  const stored = await putStorageBuffer(key, buffer, { contentType: "video/mp4" });
-  return toClientFileRef(key, stored.url);
+  const task = await prisma.generationTask.findFirstOrThrow({ where: { id: taskId, userId }, select: { projectId: true } });
+  const key = `users/${userId}/projects/${task.projectId}/generations/${taskId}/video.mp4`;
+  await putStorageBuffer(key, buffer, { contentType: "video/mp4" });
+  return toClientFileRef(key);
 }
 
 async function downloadPermanentThumbnail(taskId: string, userId: string, sourceUrl: string) {
@@ -276,9 +278,10 @@ async function downloadPermanentThumbnail(taskId: string, userId: string, source
   if (buffer.byteLength > 20 * 1024 * 1024) throw new Error("La miniature dépasse la limite de stockage Rudyo.");
   const contentType = response.headers.get("content-type")?.split(";")[0] || "image/jpeg";
   const extension = contentType === "image/png" ? "png" : contentType === "image/webp" ? "webp" : "jpg";
-  const key = `seedance/${userId}/${taskId}/thumbnail.${extension}`;
-  const stored = await putStorageBuffer(key, buffer, { contentType });
-  return toClientFileRef(key, stored.url);
+  const task = await prisma.generationTask.findFirstOrThrow({ where: { id: taskId, userId }, select: { projectId: true } });
+  const key = `users/${userId}/projects/${task.projectId}/generations/${taskId}/thumbnail.${extension}`;
+  await putStorageBuffer(key, buffer, { contentType });
+  return toClientFileRef(key);
 }
 
 export async function syncGenerationTask(taskId: string, userId: string) {
@@ -305,7 +308,7 @@ export async function syncGenerationTask(taskId: string, userId: string) {
   const eurRate = Number(process.env.USD_TO_EUR_RATE);
   const actualEur = actualUsd !== null && Number.isFinite(eurRate) && eurRate > 0 ? actualUsd * eurRate : null;
 
-  const updated = await prisma.$transaction(async (tx) => {
+  let updated = await prisma.$transaction(async (tx) => {
     const task = await tx.generationTask.update({
       where: { id: stored.id },
       data: {
@@ -346,6 +349,7 @@ export async function syncGenerationTask(taskId: string, userId: string) {
 
   if (TERMINAL_FAILURES.has(status) && !TERMINAL_FAILURES.has(stored.status) && stored.creditReservationId) {
     await refundCreditUsage(stored.creditReservationId);
+    updated = await prisma.generationTask.update({ where: { id: stored.id }, data: { status: GenerationTaskStatus.REFUNDED } });
   }
   return updated;
 }
@@ -355,13 +359,13 @@ export async function cancelGenerationTask(taskId: string, userId: string) {
   if (!task) throw new Error("Tâche introuvable.");
   if (task.provider === "byteplus-demo") return task;
   if (!task.bytePlusTaskId) throw new Error("Cette tâche ne possède pas d’identifiant BytePlus vérifiable.");
-  if (task.status === GenerationTaskStatus.RUNNING) throw new Error("BytePlus ne permet pas d’annuler une tâche déjà en cours.");
+  if (task.status === GenerationTaskStatus.PROCESSING) throw new Error("BytePlus ne permet pas d’annuler une tâche déjà en cours.");
   await bytePlusClient.deleteTask(task.bytePlusTaskId);
-  if (task.status === GenerationTaskStatus.QUEUED && task.creditReservationId) {
+  if (task.status === GenerationTaskStatus.SUBMITTED && task.creditReservationId) {
     await refundCreditUsage(task.creditReservationId);
   }
   return prisma.$transaction(async (tx) => {
     await tx.storyboardScene.update({ where: { id: task.sceneId }, data: { status: StoryboardSceneStatus.CANCELED } });
-    return tx.generationTask.update({ where: { id: task.id }, data: { status: GenerationTaskStatus.CANCELED, completedAt: new Date() } });
+    return tx.generationTask.update({ where: { id: task.id }, data: { status: task.creditReservationId ? GenerationTaskStatus.REFUNDED : GenerationTaskStatus.CANCELLED, completedAt: new Date() } });
   });
 }

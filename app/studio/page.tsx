@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   CREDIT_COSTS,
   CREDIT_TOOL_DESCRIPTIONS,
@@ -10,6 +11,8 @@ import {
 } from "@/lib/credit-costs";
 import { ModelCard } from "@/components/ModelCard";
 import { StepProgress } from "@/components/StepProgress";
+import ProjectAssetWorkspace from "@/app/components/ProjectAssetWorkspace";
+import SavedResults from "@/app/components/SavedResults";
 
 type GenerationResult = {
   success: boolean;
@@ -23,18 +26,14 @@ type GenerationResult = {
 };
 
 type VideoJob = {
-  clipId: number;
-  clipName: string;
   status: string;
-  provider: string;
   savedTo?: string;
   outputUrl?: string;
-  getUrl?: string;
-  predictionId?: string;
   error?: string;
 };
 
 export default function StudioPage() {
+  const router = useRouter();
   const [selectedTool, setSelectedTool] = useState<CreditTool>("storyboard");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -84,51 +83,7 @@ export default function StudioPage() {
 
     try {
       if (selectedTool === "seedance_video") {
-        const prompt = [
-          description.trim(),
-          `Style visuel : ${style}.`,
-          audience.trim() ? `Public cible : ${audience}.` : "",
-          `Format de diffusion : ${platform}.`,
-          `Langue : ${language}.`,
-        ]
-          .filter(Boolean)
-          .join(" ");
-        const response = await fetch("/api/generate-videos", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
-          body: JSON.stringify({
-            titre: title || "Vidéo Seedance",
-            clips: [
-              {
-                id: 1,
-                nom: title || "Vidéo Seedance",
-                duree: duration,
-                description,
-                promptVideo: prompt,
-              },
-            ],
-          }),
-        });
-        const data = await response.json();
-
-        if (!response.ok) {
-          setResult({
-            success: false,
-            error: data.error || "Erreur lors du lancement de Seedance.",
-            redirectTo: data.redirectTo,
-          });
-          return;
-        }
-
-        const videoJob = data.result.jobs[0] as VideoJob;
-        setCreditBalance((balance) => Math.max(0, balance - selectedCost));
-        setResult({
-          success: true,
-          provider: data.result.provider,
-          result: "La vidéo Seedance est en cours de génération.",
-          videoJob,
-        });
-        void suivreVideoSeedance(videoJob, selectedCost);
+        router.push("/studio-clip-seedance");
         return;
       }
 
@@ -177,54 +132,6 @@ export default function StudioPage() {
     }
   }
 
-  async function suivreVideoSeedance(
-    initialJob: VideoJob,
-    chargedCredits: number,
-  ) {
-    let currentJob = initialJob;
-
-    for (let attempt = 0; attempt < 90; attempt += 1) {
-      if (
-        ["succeeded", "failed", "cancelled", "expired"].includes(
-          currentJob.status,
-        ) ||
-        !currentJob.getUrl
-      ) {
-        return;
-      }
-
-      await new Promise((resolve) => window.setTimeout(resolve, 10_000));
-
-      try {
-        const response = await fetch(currentJob.getUrl, { cache: "no-store" });
-        const data = await response.json();
-
-        if (!response.ok || !data.success) {
-          continue;
-        }
-
-        currentJob = data.job as VideoJob;
-        const failed = currentJob.status === "failed";
-        setResult({
-          success: !failed,
-          provider: currentJob.provider,
-          result:
-            currentJob.status === "succeeded"
-              ? "Votre vidéo Seedance est prête."
-              : `Génération Seedance : ${currentJob.status}.`,
-          error: failed ? currentJob.error : undefined,
-          videoJob: currentJob,
-        });
-
-        if (failed) {
-          setCreditBalance((balance) => balance + chargedCredits);
-        }
-      } catch {
-        // Une erreur réseau temporaire sera retentée au prochain passage.
-      }
-    }
-  }
-
   function copyResult() {
     if (!result?.result) return;
     navigator.clipboard.writeText(result.result);
@@ -237,7 +144,7 @@ export default function StudioPage() {
           <div className="flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <p className="mb-4 inline-flex rounded-full border border-cyan-400/40 bg-cyan-400/10 px-4 py-2 text-sm font-semibold text-cyan-200">
-                Rudyo Video Studio IA
+                Rudyo AI
               </p>
 
               <h1 className="max-w-3xl text-4xl font-black tracking-tight md:text-6xl">
@@ -288,7 +195,9 @@ export default function StudioPage() {
           <StepProgress currentStep={currentStep} />
         </div>
 
-        <section className="grid gap-8 lg:grid-cols-[1.2fr_0.8fr]">
+        <ProjectAssetWorkspace />
+
+        <section className="mt-8 grid gap-8 lg:grid-cols-[1.2fr_0.8fr]">
           <div>
             <div className="mb-6">
               <h2 className="text-2xl font-black">1. Choisissez un modèle</h2>
@@ -472,7 +381,7 @@ export default function StudioPage() {
               <div>
                 <h2 className="text-2xl font-black">Résultat IA</h2>
                 <p className="mt-2 text-slate-400">
-                  Résultat généré par Rudyo Video Studio IA.
+                  Résultat généré par Rudyo AI.
                 </p>
               </div>
 
@@ -531,6 +440,7 @@ export default function StudioPage() {
             )}
           </section>
         )}
+        <div className="mt-10"><SavedResults /></div>
       </div>
     </main>
   );

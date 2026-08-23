@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "@/app/components/SessionProvider";
 
 type AuthResponse = {
   success: boolean;
@@ -22,22 +23,17 @@ async function readResponse(response: Response): Promise<AuthResponse> {
 
 export default function LoginPage() {
   const router = useRouter();
+  const { status, refreshSession } = useSession();
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [otp, setOtp] = useState("");
   const [challengeRequested, setChallengeRequested] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [checking, setChecking] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const controller = new AbortController();
-    fetch("/api/session", { cache: "no-store", signal: controller.signal })
-      .then((response) => response.ok ? router.replace("/studio") : undefined)
-      .catch(() => undefined)
-      .finally(() => setChecking(false));
-    return () => controller.abort();
-  }, [router]);
+    if (status === "authenticated") router.replace("/dashboard");
+  }, [router, status]);
 
   async function requestCode(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -56,7 +52,7 @@ export default function LoginPage() {
         return;
       }
       if (body.challengeRequired) setChallengeRequested(true);
-      else router.replace("/studio");
+      else router.replace("/dashboard");
     } catch {
       setError("Impossible d’envoyer le code. Réessayez.");
     } finally {
@@ -84,7 +80,8 @@ export default function LoginPage() {
         setError(body.error || "Code invalide ou expiré.");
         return;
       }
-      router.replace("/studio");
+      await refreshSession();
+      router.replace("/dashboard");
     } catch {
       setError("Impossible de vérifier le code. Réessayez.");
     } finally {
@@ -133,8 +130,8 @@ export default function LoginPage() {
 
           {error ? <div role="alert" className="rounded-2xl border border-rose-500/40 bg-rose-950/30 p-4 text-sm text-rose-100">{error}</div> : null}
 
-          <button type="submit" disabled={loading || checking} className="w-full rounded-2xl bg-emerald-400 px-5 py-4 font-black text-slate-950 disabled:opacity-60">
-            {loading || checking ? "Veuillez patienter…" : challengeRequested ? "Vérifier et me connecter" : "Recevoir mon code sécurisé"}
+          <button type="submit" disabled={loading || status === "loading"} className="w-full rounded-2xl bg-emerald-400 px-5 py-4 font-black text-slate-950 disabled:opacity-60">
+            {loading || status === "loading" ? "Veuillez patienter…" : challengeRequested ? "Vérifier et me connecter" : "Recevoir mon code sécurisé"}
           </button>
 
           {challengeRequested ? (

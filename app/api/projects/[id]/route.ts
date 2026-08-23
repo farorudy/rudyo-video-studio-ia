@@ -1,71 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
-import { deleteStorage, readStorageText } from "@/lib/storage";
 import { getCurrentUser } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+import { deleteStorage } from "@/lib/storage";
 
-// DELETE /api/projects/[id] — supprimer un projet
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const user = await getCurrentUser(request);
-    if (!user) {
-      return NextResponse.json(
-        { success: false, error: "Authentification requise." },
-        { status: 401 },
-      );
-    }
-
+    if (!user || user.localSession) return NextResponse.json({ success: false, error: "Authentification requise." }, { status: 401 });
     const { id } = await params;
+    const project = await prisma.videoProject.findFirst({ where: { id, userId: user.id }, include: { mediaAssets: { select: { storageKey: true } } } });
+    if (!project) return NextResponse.json({ success: false, error: "Projet introuvable." }, { status: 404 });
 
-    // Sanitize : rejeter les id contenant des chemins traversants
-    if (!id || id.includes("..") || id.includes("/") || id.includes("\\")) {
-      return NextResponse.json(
-        { success: false, error: "Identifiant de projet invalide." },
-        { status: 400 },
-      );
-    }
-
-    // Autoriser uniquement les caractères alphanum, tirets
-    if (!/^[a-z0-9\-]+$/i.test(id)) {
-      return NextResponse.json(
-        { success: false, error: "Identifiant de projet invalide." },
-        { status: 400 },
-      );
-    }
-
-    const projectText = await readStorageText(`projects/${id}.json`);
-    if (!projectText) {
-      return NextResponse.json(
-        { success: false, error: "Projet introuvable." },
-        { status: 404 },
-      );
-    }
-
-    const project = JSON.parse(projectText) as { userId?: string };
-    if (project.userId !== user.id) {
-      return NextResponse.json(
-        { success: false, error: "Permission refusee." },
-        { status: 403 },
-      );
-    }
-
-    const deleted = await deleteStorage(`projects/${id}.json`);
-
-    if (!deleted) {
-      return NextResponse.json(
-        { success: false, error: "Projet introuvable." },
-        { status: 404 },
-      );
-    }
-
+    await Promise.all(project.mediaAssets.map((asset) => deleteStorage(asset.storageKey).catch(() => false)));
+    await prisma.videoProject.delete({ where: { id } });
     return NextResponse.json({ success: true, deleted: id });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Erreur suppression projet.";
-    return NextResponse.json(
-      { success: false, error: message },
-      { status: 500 },
-    );
+    console.error("Project deletion failed", error instanceof Error ? error.message : error);
+    return NextResponse.json({ success: false, error: "Impossible de supprimer le projet." }, { status: 500 });
   }
 }

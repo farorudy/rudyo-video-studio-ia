@@ -120,30 +120,14 @@ export const MODEL_CREDIT_RATES: ModelCreditRate[] = [
     unit: "per second",
     requirement: "1s minimum",
   },
-  {
-    category: "Image to Video",
-    model: "Seedance 2.0 Pro",
-    resolution: "720P",
-    credits: 20,
-    unit: "per second",
-    requirement: "1s minimum",
-  },
-  {
-    category: "Image to Video",
-    model: "Seedance 2.0 Pro",
-    resolution: "1080P",
-    credits: 50,
-    unit: "per second",
-    requirement: "1s minimum",
-  },
-  {
-    category: "Image to Video",
-    model: "Seedance 2.0 Fast",
-    resolution: "720P",
-    credits: 15,
-    unit: "per second",
-    requirement: "1s minimum",
-  },
+  ...SEEDANCE_DEFAULT_CREDIT_RATES.map((rate) => ({
+    category: "Image to Video" as const,
+    model: rate.label,
+    resolution: rate.resolution.toUpperCase(),
+    credits: rate.creditsPerSecond,
+    unit: "per second" as const,
+    requirement: "4s minimum",
+  })),
   {
     category: "Image to Video",
     model: "Seedance 1.5 Pro",
@@ -398,3 +382,4 @@ export const MODEL_CREDIT_CATEGORIES: ModelCreditCategory[] = [
 export function getModelCreditRatesByCategory(category: ModelCreditCategory) {
   return MODEL_CREDIT_RATES.filter((rate) => rate.category === category);
 }
+import { SEEDANCE_DEFAULT_CREDIT_RATES } from "@/lib/seedance/pricing";

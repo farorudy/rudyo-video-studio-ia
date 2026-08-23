@@ -1,4 +1,4 @@
-import { GenerateRequest, Scene, ImportedElement } from "./types";
+import { GenerateRequest } from "./types";
 
 export function getSystemPrompt(
   mode: "creative" | "expert" | "sovereign",

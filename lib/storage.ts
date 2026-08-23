@@ -1,10 +1,12 @@
 import { promises as fs } from "fs";
+import { createReadStream } from "fs";
+import { Readable } from "stream";
 import path from "path";
 import { del, get, list, put } from "@vercel/blob";
 
 type StoragePutOptions = {
   contentType?: string;
-  access?: "public" | "private";
+  access?: "private";
 };
 
 export type StorageItem = {
@@ -17,7 +19,7 @@ export type StorageItem = {
 const MEDIA_ROOT = path.join(process.cwd(), "media");
 
 function normalizeKey(key: string) {
-  const normalized = key.replace(/^\/+/, "").replace(/\\/g, "/");
+  const normalized = key.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
   const segments = normalized.split("/");
 
   if (
@@ -83,7 +85,7 @@ export async function putStorageBuffer(
 
   if (isCloudStorageEnabled()) {
     const blob = await put(toCloudPathname(normalized), buffer, {
-      access: options.access ?? "public",
+      access: "private",
       addRandomSuffix: false,
       allowOverwrite: true,
       contentType: options.contentType,
@@ -124,18 +126,12 @@ export async function readStorageBuffer(key: string) {
       return null;
     }
 
-    const response = await fetch(blob.url);
-
-    if (response.ok) {
-      return Buffer.from(await response.arrayBuffer());
-    }
-
     const privateBlob = await get(blob.pathname, {
       access: "private",
       useCache: false,
     });
     if (!privateBlob || privateBlob.statusCode !== 200) {
-      throw new Error(`Impossible de lire le blob (${response.status}).`);
+      throw new Error("Impossible de lire le blob privé.");
     }
     return Buffer.from(await new Response(privateBlob.stream).arrayBuffer());
   }
@@ -147,6 +143,48 @@ export async function readStorageBuffer(key: string) {
       return null;
     }
 
+    throw error;
+  }
+}
+
+export function storageKeyFromClientRef(value?: string | null) {
+  if (!value) return null;
+  if (value.startsWith("media/")) return normalizeKey(value.slice("media/".length));
+  if (!isCloudStorageEnabled()) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || !url.hostname.endsWith(".blob.vercel-storage.com")) return null;
+    const pathname = decodeURIComponent(url.pathname).replace(/^\/+/, "");
+    const prefix = `${cloudPrefix()}/`;
+    return pathname.startsWith(prefix) ? normalizeKey(pathname.slice(prefix.length)) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function openStorageStream(key: string): Promise<{
+  stream: ReadableStream<Uint8Array>;
+  size?: number;
+} | null> {
+  const normalized = normalizeKey(key);
+
+  if (isCloudStorageEnabled()) {
+    const blob = await findCloudBlobByKey(normalized);
+    if (!blob) return null;
+    const result = await get(blob.pathname, { access: "private", useCache: false });
+    if (!result || result.statusCode !== 200) return null;
+    return { stream: result.stream, size: blob.size };
+  }
+
+  try {
+    const localPath = toLocalPath(normalized);
+    const stats = await fs.stat(localPath);
+    return {
+      stream: Readable.toWeb(createReadStream(localPath)) as ReadableStream<Uint8Array>,
+      size: stats.size,
+    };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
   }
 }

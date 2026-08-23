@@ -28,6 +28,8 @@ test("les réservations concurrentes ne dépassent jamais le solde", { skip: !te
     const refunded = await db.user.findUniqueOrThrow({ where: { id: user.id }, select: { creditsRemaining: true } });
     assert.equal(refunded.creditsRemaining, 6);
   } finally {
+    await db.creditUsage.deleteMany({ where: { userId: user.id } });
+    await db.creditTransaction.deleteMany({ where: { userId: user.id } });
     await db.user.delete({ where: { id: user.id } });
     await db.$disconnect();
   }

@@ -19,8 +19,10 @@
     "montage:advanced": "node scripts/montage-advanced.js",
     "montage:smart": "node scripts/montage-smart.js",
     "test:accented-slide": "tsx scripts/test-accented-slide.ts",
-    "test:seedance": "tsx --test tests/seedance-models.test.ts",
-    "test:security": "tsx --test tests/security-*.test.ts"
+    "test:seedance": "tsx --test tests/seedance-*.test.ts",
+    "test:security": "tsx --test tests/security-*.test.ts",
+    "test": "npm run test:security && npm run test:seedance",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.98.0",
@@ -48,6 +50,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@playwright/test": "^1.51.1",
     "@types/node": "^20.19.41",
     "@types/nodemailer": "^8.0.1",
     "@types/react": "^19",

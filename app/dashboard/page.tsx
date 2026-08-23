@@ -1,24 +1,8 @@
 import Link from "next/link";
 import CreditDashboard from "@/app/components/CreditDashboard";
 import Navigation from "@/app/components/Navigation";
-
-const stats = [
-  {
-    label: "Projets",
-    value: "0",
-    detail: "Storyboards, clips et formations sauvegardes.",
-  },
-  {
-    label: "Exports",
-    value: "0",
-    detail: "PDF, JSON, scripts et prompts generes.",
-  },
-  {
-    label: "Commandes",
-    value: "0",
-    detail: "Videos Farozik en devis ou en production.",
-  },
-];
+import SavedResults from "@/app/components/SavedResults";
+import DashboardStats from "@/app/components/DashboardStats";
 
 export default function DashboardPage() {
   return (
@@ -46,22 +30,7 @@ export default function DashboardPage() {
           </Link>
         </div>
 
-        <div className="grid gap-5 md:grid-cols-3">
-          {stats.map((stat) => (
-            <div
-              key={stat.label}
-              className="rounded-3xl border border-slate-800 bg-slate-950 p-6"
-            >
-              <p className="text-sm text-slate-400">{stat.label}</p>
-              <p className="mt-3 text-5xl font-black text-cyan-300">
-                {stat.value}
-              </p>
-              <p className="mt-4 text-sm leading-6 text-slate-300">
-                {stat.detail}
-              </p>
-            </div>
-          ))}
-        </div>
+        <DashboardStats />
 
         <div className="mt-8 grid gap-6 lg:grid-cols-[1.4fr_0.8fr]">
           <CreditDashboard />
@@ -95,6 +64,7 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
+        <div className="mt-8"><SavedResults compact /></div>
       </section>
     </main>
   );

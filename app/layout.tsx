@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { SessionProvider } from "@/app/components/SessionProvider";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -13,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Farozik - Rudyo Vidéo Studio IA",
+  title: "Rudyo AI - Studio vidéo IA",
   description:
     "Transformez vos affiches, chansons, formations et événements en vidéos professionnelles prêtes à publier. Studio vidéo assisté par IA pour artistes, associations, formations et événements.",
   keywords:
@@ -30,7 +31,9 @@ export default function RootLayout({
       lang="fr"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        <SessionProvider>{children}</SessionProvider>
+      </body>
     </html>
   );
 }

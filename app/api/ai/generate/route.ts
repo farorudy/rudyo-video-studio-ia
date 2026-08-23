@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import {
   CREDIT_COSTS,
+  CREDIT_TOOLS,
   CREDIT_TOOL_LABELS,
   type CreditTool,
 } from "@/lib/credit-costs";
@@ -12,9 +14,15 @@ import {
   refundCreditUsage,
   reserveCredits,
 } from "@/lib/credit-utils";
+import { enforceApiRateLimit, readJsonWithLimit, requireIdempotencyKey } from "@/lib/request-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const requestSchema = z.object({
+  tool: z.string().refine((value): value is CreditTool => CREDIT_TOOLS.includes(value as CreditTool)),
+  input: z.record(z.string(), z.unknown()).default({}),
+}).strict();
 
 function buildPrompt(tool: CreditTool, input: any) {
   const label = CREDIT_TOOL_LABELS[tool];
@@ -51,7 +59,6 @@ export async function POST(request: NextRequest) {
   let reservationId: string | null = null;
 
   try {
-    const body = await request.json();
     const user = await getCurrentUserFromRequest(request);
 
     if (!user) {
@@ -65,8 +72,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const tool = body.tool as CreditTool;
-    const input = body.input ?? {};
+    await enforceApiRateLimit(request, "ai-generate", user.id, 10, 60_000);
+    const parsed = requestSchema.safeParse(await readJsonWithLimit<unknown>(request, 64 * 1024));
+    if (!parsed.success) return NextResponse.json({ success: false, error: "Requête de génération invalide." }, { status: 400 });
+
+    const tool = parsed.data.tool;
+    const input = parsed.data.input;
 
     if (!tool || !(tool in CREDIT_COSTS)) {
       return NextResponse.json(
@@ -78,6 +89,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (tool === "seedance_video") {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Une vidéo Seedance doit être créée depuis le Studio Seedance afin d’utiliser le workflow BytePlus asynchrone.",
+          redirectTo: "/studio-clip-seedance",
+        },
+        { status: 409 },
+      );
+    }
+
     const creditCost = CREDIT_COSTS[tool];
     const reservation = await reserveCredits({
       userId: user.id,
@@ -85,7 +107,7 @@ export async function POST(request: NextRequest) {
       amount: creditCost,
       description: `Génération Rudyo : ${CREDIT_TOOL_LABELS[tool]}`,
       metadata: { tool },
-      idempotencyKey: request.headers.get("idempotency-key")?.trim(),
+      idempotencyKey: requireIdempotencyKey(request),
     });
     reservationId = reservation.id;
 

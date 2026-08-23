@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "@/app/components/SessionProvider";
 
 type AuthResponse = {
   success: boolean;
@@ -20,23 +21,18 @@ async function readResponse(response: Response): Promise<AuthResponse> {
 
 export default function SignupForm({ firstPurchaseBonus }: { firstPurchaseBonus: number }) {
   const router = useRouter();
+  const { status, refreshSession } = useSession();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [otp, setOtp] = useState("");
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [challengeRequested, setChallengeRequested] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [checking, setChecking] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const controller = new AbortController();
-    fetch("/api/session", { cache: "no-store", signal: controller.signal })
-      .then((response) => response.ok ? router.replace("/credits/acheter") : undefined)
-      .catch(() => undefined)
-      .finally(() => setChecking(false));
-    return () => controller.abort();
-  }, [router]);
+    if (status === "authenticated") router.replace("/dashboard");
+  }, [router, status]);
 
   async function requestCode(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -63,7 +59,7 @@ export default function SignupForm({ firstPurchaseBonus }: { firstPurchaseBonus:
         return;
       }
       if (body.challengeRequired) setChallengeRequested(true);
-      else router.replace("/credits/acheter?bienvenue=1");
+      else router.replace("/dashboard");
     } catch {
       setError("Impossible d’envoyer le code. Réessayez dans quelques instants.");
     } finally {
@@ -92,7 +88,8 @@ export default function SignupForm({ firstPurchaseBonus }: { firstPurchaseBonus:
         setError(body.error || "Code invalide ou expiré.");
         return;
       }
-      router.replace("/credits/acheter?bienvenue=1");
+      await refreshSession();
+      router.replace("/dashboard");
     } catch {
       setError("Impossible de vérifier le code. Réessayez.");
     } finally {
@@ -186,10 +183,10 @@ export default function SignupForm({ firstPurchaseBonus }: { firstPurchaseBonus:
 
       <button
         type="submit"
-        disabled={loading || checking}
+        disabled={loading || status === "loading"}
         className="mt-6 w-full rounded-2xl bg-cyan-400 px-5 py-4 font-black text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
       >
-        {loading || checking
+        {loading || status === "loading"
           ? "Veuillez patienter…"
           : challengeRequested
             ? "Vérifier et continuer"

@@ -1,20 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import ProjectAssetUploader from "@/app/components/ProjectAssetUploader";
+import ProjectAssetGallery, { type ProjectAsset } from "@/app/components/ProjectAssetGallery";
+import SavedResults from "@/app/components/SavedResults";
+import SecureDownloadButton from "@/app/components/SecureDownloadButton";
+import { fetchJson } from "@/lib/client-api";
 
-type Model = { modelId: string; label: string; tier: string; availability: string; capabilities: { resolutions: string[]; durations: number[] } };
+type Model = { modelId: string; label: string; tier: string; availability: string; capabilities: { resolutions: string[]; durations: number[] }; pricing: Array<{ resolution: string; creditsPerSecond: number }> };
 type Task = { id: string; status: string; provider: string; permanentVideoUrl?: string; errorMessage?: string; actualCompletionTokens?: number };
 type Scene = { id: string; order: number; title: string; prompt: string; status: string; durationSeconds: number; resolution: string; ratio: string; modelId?: string; locked: boolean; generationTasks: Task[]; variants: Array<{ id: string; videoUrl: string; selected: boolean }> };
-type Asset = { id: string; type: string; fileName: string; url: string };
+type Asset = ProjectAsset & { url?: string };
 type Project = { id: string; title: string; artistName: string; musicGenre?: string; bpm?: number; durationSeconds?: number; finalFormat: string; demoMode: boolean; scenes: Scene[]; mediaAssets: Asset[]; consentRecords: Array<{ id: string; personName: string }>; budgetLimit?: { projectCredits?: number }; _count?: { scenes: number; generationTasks: number } };
 
-const TERMINAL = new Set(["SUCCEEDED", "FAILED", "REJECTED", "CANCELED", "EXPIRED"]);
-const assetTypes = [
-  ["AUDIO", "Chanson MP3 ou WAV"], ["ARTIST_PORTRAIT", "Portrait principal"],
-  ["REFERENCE_IMAGE", "Image de référence"], ["REFERENCE_VIDEO", "Vidéo de référence"],
-  ["DECOR", "Décor"], ["OUTFIT", "Tenue"], ["FIRST_FRAME", "Première image"], ["LAST_FRAME", "Dernière image"],
-] as const;
-
+const TERMINAL = new Set(["SUCCEEDED", "FAILED", "CANCELLED", "REFUNDED"]);
 export default function SeedanceClipStudioPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [project, setProject] = useState<Project | null>(null);
@@ -22,39 +21,50 @@ export default function SeedanceClipStudioPage() {
   const [mode, setMode] = useState<"demo" | "production">("demo");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [creditBalance, setCreditBalance] = useState(0);
   const [selectedAssets, setSelectedAssets] = useState<string[]>([]);
   const [newProject, setNewProject] = useState({ title: "", artistName: "", musicGenre: "", bpm: "", durationSeconds: "", finalFormat: "16:9", maxBudgetCredits: "200" });
   const [newScene, setNewScene] = useState({ title: "Plan 1", start: "0", end: "5", prompt: "", modelId: "auto", resolution: "720p", ratio: "16:9" });
 
   const loadProject = useCallback(async (id: string) => {
-    const response = await fetch(`/api/seedance/projects/${id}`, { cache: "no-store" });
-    const data = await response.json();
-    if (response.ok) setProject(data.project);
-    else setMessage(data.error || "Projet inaccessible.");
+    try {
+      const data = await fetchJson<{ project: Project }>(`/api/seedance/projects/${encodeURIComponent(id)}`, { cache: "no-store" });
+      setProject(data.project);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Projet inaccessible.");
+    }
   }, []);
 
   const loadProjects = useCallback(async () => {
-    const response = await fetch("/api/seedance/projects", { cache: "no-store" });
-    if (response.status === 401) { setMessage("Connectez-vous avec votre compte Rudyo pour utiliser le studio."); return; }
-    const data = await response.json();
-    if (response.ok) setProjects(data.projects);
+    try {
+      const data = await fetchJson<{ projects: Project[] }>("/api/seedance/projects", { cache: "no-store" });
+      setProjects(data.projects || []);
+      return data.projects || [];
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Impossible de charger vos projets.");
+      return [];
+    }
   }, []);
 
   useEffect(() => {
     const controller = new AbortController();
     void Promise.all([
-      fetch("/api/seedance/projects", { cache: "no-store", signal: controller.signal })
-        .then(async (response) => ({ response, data: await response.json() }))
-        .then(({ response, data }) => {
-          if (response.status === 401) setMessage("Connectez-vous avec votre compte Rudyo pour utiliser le studio.");
-          else if (response.ok) setProjects(data.projects);
-        }),
-      fetch("/api/seedance/models", { signal: controller.signal })
-        .then((response) => response.json())
-        .then((data) => { setModels(data.models || []); setMode(data.mode || "demo"); }),
-    ]).catch(() => undefined);
+      fetchJson<{ projects: Project[] }>("/api/seedance/projects", { cache: "no-store", signal: controller.signal }),
+      fetchJson<{ models?: Model[]; mode?: "demo" | "production" }>("/api/seedance/models", { signal: controller.signal }),
+      fetchJson<{ creditsRemaining: number }>("/api/credits/balance", { cache: "no-store", signal: controller.signal }).catch(() => ({ creditsRemaining: 0 })),
+    ]).then(([projectData, modelData, creditData]) => {
+      const nextProjects = projectData.projects || [];
+      setProjects(nextProjects);
+      setModels(modelData.models || []);
+      setMode(modelData.mode || "demo");
+      setCreditBalance(creditData.creditsRemaining || 0);
+      const requestedId = new URLSearchParams(window.location.search).get("project");
+      if (requestedId && nextProjects.some((item) => item.id === requestedId)) void loadProject(requestedId);
+    }).catch((error: unknown) => {
+      if (!(error instanceof DOMException && error.name === "AbortError")) setMessage(error instanceof Error ? error.message : "Impossible de charger le studio.");
+    });
     return () => controller.abort();
-  }, []);
+  }, [loadProject]);
 
   useEffect(() => {
     if (!project) return;
@@ -69,40 +79,47 @@ export default function SeedanceClipStudioPage() {
 
   const consumption = project?.scenes.reduce((sum, scene) => sum + (scene.generationTasks[0]?.actualCompletionTokens || 0), 0) || 0;
 
+  function quoteForScene(scene: Scene, preview = false) {
+    const activeModels = models.filter((model) => model.availability === "active");
+    const model = scene.modelId
+      ? activeModels.find((candidate) => candidate.modelId === scene.modelId)
+      : activeModels.find((candidate) => candidate.tier === (preview ? "preview" : "quality")) || activeModels[0];
+    const rate = model?.pricing.find((item) => item.resolution.toLowerCase() === scene.resolution.toLowerCase());
+    return model && rate ? { model, unitCredits: rate.creditsPerSecond, totalCredits: rate.creditsPerSecond * scene.durationSeconds } : null;
+  }
+
   async function createProject() {
     setBusy(true); setMessage("");
-    const response = await fetch("/api/seedance/projects", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
-      ...newProject,
-      bpm: newProject.bpm ? Number(newProject.bpm) : undefined,
-      durationSeconds: newProject.durationSeconds ? Number(newProject.durationSeconds) : undefined,
-      maxBudgetCredits: newProject.maxBudgetCredits ? Number(newProject.maxBudgetCredits) : undefined,
-    }) });
-    const data = await response.json(); setBusy(false);
-    if (!response.ok) { setMessage(data.error || "Création impossible."); return; }
-    await loadProjects(); await loadProject(data.project.id); setMessage("Projet musical créé.");
+    try {
+      const data = await fetchJson<{ project: Project }>("/api/seedance/projects", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+        ...newProject,
+        bpm: newProject.bpm ? Number(newProject.bpm) : undefined,
+        durationSeconds: newProject.durationSeconds ? Number(newProject.durationSeconds) : undefined,
+        maxBudgetCredits: newProject.maxBudgetCredits ? Number(newProject.maxBudgetCredits) : undefined,
+      }) });
+      await loadProjects(); await loadProject(data.project.id); setMessage("Projet musical créé.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Création impossible.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function addScene() {
     if (!project) return;
     setBusy(true); setMessage("");
-    const response = await fetch(`/api/seedance/projects/${project.id}/scenes`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
-      title: newScene.title, startTimeSeconds: Number(newScene.start), endTimeSeconds: Number(newScene.end), prompt: newScene.prompt,
-      modelId: newScene.modelId === "auto" ? undefined : newScene.modelId, resolution: newScene.resolution, ratio: newScene.ratio,
-      generateAudio: false, watermark: false,
-    }) });
-    const data = await response.json(); setBusy(false);
-    if (!response.ok) { setMessage(data.error || "Scène invalide."); return; }
-    await loadProject(project.id); setNewScene((value) => ({ ...value, title: `Plan ${project.scenes.length + 2}`, start: value.end, end: String(Number(value.end) + 5), prompt: "" }));
-  }
-
-  async function uploadAsset(file: File, type: string) {
-    if (!project) return;
-    setBusy(true); setMessage("Importation en cours…");
-    const form = new FormData(); form.set("file", file); form.set("type", type);
-    const response = await fetch(`/api/seedance/projects/${project.id}/media`, { method: "POST", body: form });
-    const data = await response.json(); setBusy(false);
-    if (!response.ok) { setMessage(data.error || "Importation impossible."); return; }
-    await loadProject(project.id); setMessage(`${file.name} a été sauvegardé.`);
+    try {
+      await fetchJson<{ success?: boolean }>(`/api/seedance/projects/${encodeURIComponent(project.id)}/scenes`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+        title: newScene.title, startTimeSeconds: Number(newScene.start), endTimeSeconds: Number(newScene.end), prompt: newScene.prompt,
+        modelId: newScene.modelId === "auto" ? undefined : newScene.modelId, resolution: newScene.resolution, ratio: newScene.ratio,
+        generateAudio: false, watermark: false,
+      }) });
+      await loadProject(project.id); setNewScene((value) => ({ ...value, title: `Plan ${project.scenes.length + 2}`, start: value.end, end: String(Number(value.end) + 5), prompt: "" }));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Scène invalide.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function addConsent() {
@@ -110,23 +127,39 @@ export default function SeedanceClipStudioPage() {
     const personName = window.prompt("Nom de la personne qui autorise l’utilisation de son image ou de sa voix :", project.artistName);
     if (!personName) return;
     if (!window.confirm("Je confirme disposer des droits nécessaires pour utiliser l’image et la voix de cette personne.")) return;
-    const response = await fetch(`/api/seedance/projects/${project.id}/consents`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ personName, authorizationType: "image_et_voix", consentedAt: new Date().toISOString(), confirmed: true }) });
-    const data = await response.json();
-    if (!response.ok) setMessage(data.error || "Consentement non enregistré.");
-    else { await loadProject(project.id); setMessage("Consentement enregistré et horodaté."); }
+    try {
+      await fetchJson<{ success?: boolean }>(`/api/seedance/projects/${encodeURIComponent(project.id)}/consents`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ personName, authorizationType: "image_et_voix", consentedAt: new Date().toISOString(), confirmed: true }) });
+      await loadProject(project.id); setMessage("Consentement enregistré et horodaté.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Consentement non enregistré.");
+    }
   }
 
   async function generate(scene: Scene, preview = false) {
-    if (!window.confirm(`${preview ? "Créer une prévisualisation" : "Lancer la génération"} de « ${scene.title} » ? Les limites du projet seront vérifiées avant l’envoi.`)) return;
+    if (!project) return;
+    const quote = quoteForScene(scene, preview);
+    if (mode === "production" && !quote) { setMessage("Aucun tarif actif ne correspond à cette scène. La génération reste bloquée."); return; }
+    const total = mode === "demo" ? 0 : quote!.totalCredits;
+    const remaining = creditBalance - total;
+    if (remaining < 0) { setMessage(`Crédits Rudyo insuffisants : ${creditBalance} disponibles, ${total} requis.`); return; }
+    const confirmation = mode === "demo"
+      ? `Simuler « ${scene.title} » sans appel BytePlus et sans débit ?`
+      : `${preview ? "Créer une prévisualisation" : "Lancer la génération"} « ${scene.title} » ?\n\nModèle : ${quote!.model.label}\nDurée : ${scene.durationSeconds} s\nPrix unitaire : ${quote!.unitCredits} crédits Rudyo/s\nCoût total : ${total} crédits Rudyo\nSolde actuel : ${creditBalance}\nSolde restant : ${remaining}`;
+    if (!window.confirm(confirmation)) return;
     setBusy(true); setMessage("");
-    const response = await fetch(`/api/seedance/scenes/${scene.id}/generate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
-      idempotencyKey: crypto.randomUUID(), requestedModelId: scene.modelId || "auto", preview,
-      referenceAssetIds: selectedAssets, confirmCost: true,
-    }) });
-    const data = await response.json(); setBusy(false);
-    if (!response.ok) { setMessage(data.error || "Génération impossible."); return; }
-    await loadProject(project!.id);
-    setMessage(data.demo ? "Mode démonstration : simulation terminée, aucune vidéo réelle ni aucun token consommé." : "Tâche BytePlus enregistrée. Le suivi est automatique.");
+    try {
+      const data = await fetchJson<{ demo?: boolean }>(`/api/seedance/scenes/${encodeURIComponent(scene.id)}/generate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+        idempotencyKey: crypto.randomUUID(), requestedModelId: scene.modelId || "auto", preview,
+        referenceAssetIds: selectedAssets, confirmCost: true,
+      }) });
+      await loadProject(project.id);
+      if (!data.demo) setCreditBalance(remaining);
+      setMessage(data.demo ? "Mode démonstration : simulation terminée, aucune vidéo réelle ni aucun token consommé." : "Tâche BytePlus enregistrée. Le suivi est automatique.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Génération impossible.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -157,15 +190,21 @@ export default function SeedanceClipStudioPage() {
             <section className="grid gap-4 md:grid-cols-4">{[["Artiste", project.artistName], ["Format", project.finalFormat], ["Scènes", String(project.scenes.length)], ["Tokens réels", consumption.toLocaleString("fr-FR")]].map(([label, value]) => <div key={label} className="rounded-2xl border border-slate-800 bg-slate-950 p-5"><p className="text-xs uppercase tracking-wider text-slate-500">{label}</p><p className="mt-2 text-xl font-black text-violet-200">{value}</p></div>)}</section>
 
             <section className="rounded-3xl border border-slate-800 bg-slate-950 p-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-2xl font-black">Identité et références</h2><p className="text-sm text-slate-400">Sélectionnez les médias à transmettre à la prochaine génération.</p></div><button onClick={() => void addConsent()} className="rounded-xl border border-emerald-400/40 px-4 py-2 text-sm font-bold text-emerald-200">{project.consentRecords.length ? "Consentement enregistré ✓" : "Enregistrer le consentement"}</button></div>
-              <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{assetTypes.map(([type, label]) => <label key={type} className="cursor-pointer rounded-2xl border border-slate-800 bg-slate-900 p-4"><span className="text-sm font-bold">{label}</span><input type="file" accept={type === "AUDIO" ? "audio/*" : type.includes("VIDEO") ? "video/*" : "image/*"} className="mt-3 block w-full text-xs text-slate-400" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadAsset(file, type); }} /></label>)}</div>
-              {project.mediaAssets.length > 0 && <div className="mt-5 flex flex-wrap gap-2">{project.mediaAssets.map((asset) => <button key={asset.id} onClick={() => setSelectedAssets((current) => current.includes(asset.id) ? current.filter((id) => id !== asset.id) : [...current, asset.id])} className={`rounded-full border px-3 py-2 text-xs ${selectedAssets.includes(asset.id) ? "border-cyan-300 bg-cyan-300 text-slate-950" : "border-slate-700"}`}>{asset.fileName}</button>)}</div>}
+              <div className="mt-5"><ProjectAssetUploader projectId={project.id} onUploaded={() => loadProject(project.id)} /></div>
+              <ProjectAssetGallery
+                projectId={project.id}
+                assets={project.mediaAssets}
+                selectedIds={selectedAssets}
+                onToggleSelection={(assetId) => setSelectedAssets((current) => current.includes(assetId) ? current.filter((id) => id !== assetId) : [...current, assetId])}
+              />
             </section>
 
             <section className="rounded-3xl border border-slate-800 bg-slate-950 p-6"><h2 className="text-2xl font-black">Storyboard timecodé</h2><div className="mt-5 grid gap-3 md:grid-cols-2">{project.scenes.map((scene) => { const task = scene.generationTasks[0]; return <article key={scene.id} className="rounded-2xl border border-slate-800 bg-slate-900 p-5"><div className="flex items-start justify-between"><div><p className="text-xs text-violet-300">PLAN {scene.order} · {scene.durationSeconds}s</p><h3 className="mt-1 text-lg font-black">{scene.title}</h3></div><span className="rounded-full bg-slate-800 px-3 py-1 text-xs">{task?.status || scene.status}</span></div><p className="mt-3 line-clamp-3 text-sm text-slate-400">{scene.prompt}</p>{task?.errorMessage && <p className="mt-3 text-sm text-red-300">{task.errorMessage}</p>}{(task?.permanentVideoUrl || scene.variants[0]?.videoUrl) && <video controls src={task?.permanentVideoUrl || scene.variants[0].videoUrl} className="mt-4 aspect-video w-full rounded-xl bg-black" />}<div className="mt-4 flex gap-2"><button disabled={busy || scene.locked} onClick={() => void generate(scene, true)} className="rounded-xl border border-cyan-400/40 px-3 py-2 text-xs font-bold text-cyan-200 disabled:opacity-40">Prévisualiser</button><button disabled={busy || scene.locked} onClick={() => void generate(scene)} className="rounded-xl bg-violet-400 px-3 py-2 text-xs font-black text-slate-950 disabled:opacity-40">Générer</button></div></article>; })}</div>
-              <div className="mt-6 grid gap-3 rounded-2xl border border-slate-800 bg-slate-900 p-5 md:grid-cols-2"><input placeholder="Titre de la scène" value={newScene.title} onChange={(e) => setNewScene({ ...newScene, title: e.target.value })} className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" /><div className="grid grid-cols-2 gap-2"><input type="number" placeholder="Début" value={newScene.start} onChange={(e) => setNewScene({ ...newScene, start: e.target.value })} className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" /><input type="number" placeholder="Fin" value={newScene.end} onChange={(e) => setNewScene({ ...newScene, end: e.target.value })} className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" /></div><textarea placeholder="Prompt cinématographique détaillé" value={newScene.prompt} onChange={(e) => setNewScene({ ...newScene, prompt: e.target.value })} rows={4} className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 md:col-span-2" /><select value={newScene.modelId} onChange={(e) => setNewScene({ ...newScene, modelId: e.target.value })} className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2"><option value="auto">Choix automatique</option>{models.map((model) => <option key={model.modelId} value={model.modelId}>{model.label} · {model.availability}</option>)}</select><button disabled={busy || newScene.prompt.length < 10} onClick={() => void addScene()} className="rounded-xl bg-cyan-300 px-4 py-3 font-black text-slate-950 disabled:opacity-40">Ajouter à la timeline</button></div>
+              <div className="mt-6 grid gap-3 rounded-2xl border border-slate-800 bg-slate-900 p-5 md:grid-cols-2"><input placeholder="Titre de la scène" value={newScene.title} onChange={(e) => setNewScene({ ...newScene, title: e.target.value })} className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" /><div className="grid grid-cols-2 gap-2"><input type="number" placeholder="Début" value={newScene.start} onChange={(e) => setNewScene({ ...newScene, start: e.target.value })} className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" /><input type="number" placeholder="Fin" value={newScene.end} onChange={(e) => setNewScene({ ...newScene, end: e.target.value })} className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2" /></div><textarea placeholder="Prompt cinématographique détaillé" value={newScene.prompt} onChange={(e) => setNewScene({ ...newScene, prompt: e.target.value })} rows={4} className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 md:col-span-2" /><select value={newScene.modelId} onChange={(e) => setNewScene({ ...newScene, modelId: e.target.value })} className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2"><option value="auto">Choix automatique</option>{models.filter((model) => model.availability === "active" && model.pricing.length > 0).map((model) => <option key={model.modelId} value={model.modelId}>{model.label}</option>)}</select><button disabled={busy || newScene.prompt.length < 10} onClick={() => void addScene()} className="rounded-xl bg-cyan-300 px-4 py-3 font-black text-slate-950 disabled:opacity-40">Ajouter à la timeline</button></div>
             </section>
 
-            <section className="rounded-3xl border border-slate-800 bg-gradient-to-r from-slate-950 to-violet-950/30 p-6"><div className="flex flex-wrap items-center justify-between gap-4"><div><h2 className="text-2xl font-black">Consommation et montage final</h2><p className="mt-2 text-sm text-slate-400">Les tarifs en dollars restent vides tant qu’ils ne sont pas vérifiés et configurés. Le rendu final sera traité par un worker d’arrière-plan.</p></div><div className="flex gap-3"><a href={`/api/seedance/consumption?projectId=${project.id}`} className="rounded-xl border border-violet-300/40 px-4 py-3 font-bold text-violet-200">Historique JSON</a><a href="https://console.byteplus.com/ark/region:ark+ap-southeast-1/model" target="_blank" rel="noreferrer" className="rounded-xl bg-white px-4 py-3 font-black text-slate-950">Ouvrir la console BytePlus</a></div></div></section>
+            <section className="rounded-3xl border border-slate-800 bg-gradient-to-r from-slate-950 to-violet-950/30 p-6"><div className="flex flex-wrap items-center justify-between gap-4"><div><h2 className="text-2xl font-black">Consommation et montage final</h2><p className="mt-2 text-sm text-slate-400">Les tarifs en dollars restent vides tant qu’ils ne sont pas vérifiés et configurés. Le rendu final sera traité par un worker d’arrière-plan.</p></div><div className="flex flex-wrap gap-3"><SecureDownloadButton href={`/api/projects/${encodeURIComponent(project.id)}/history/download`} fallbackName={`rudyo-historique-${project.id}.json`} label="Télécharger l’historique JSON" className="inline-flex items-center gap-2 rounded-xl border border-violet-300/40 px-4 py-3 font-bold text-violet-200 disabled:opacity-60" /><SecureDownloadButton href={`/api/projects/${encodeURIComponent(project.id)}/export?format=json`} fallbackName={`rudyo-${project.id}-storyboard.json`} label="Télécharger le storyboard JSON" className="inline-flex items-center gap-2 rounded-xl border border-cyan-300/40 px-4 py-3 font-bold text-cyan-200 disabled:opacity-60" /><SecureDownloadButton href={`/api/projects/${encodeURIComponent(project.id)}/export?format=pdf`} fallbackName={`rudyo-${project.id}-storyboard.pdf`} label="Télécharger le storyboard PDF" className="inline-flex items-center gap-2 rounded-xl border border-cyan-300/40 px-4 py-3 font-bold text-cyan-200 disabled:opacity-60" /></div></div></section>
+            <SavedResults />
           </div>}
         </section>
       </div>

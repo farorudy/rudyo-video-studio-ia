@@ -89,16 +89,13 @@ enum StoryboardSceneStatus {
 }
 
 enum GenerationTaskStatus {
-  CREATED
-  SUBMITTING
-  SUBMISSION_UNKNOWN
-  QUEUED
-  RUNNING
+  PENDING
+  SUBMITTED
+  PROCESSING
   SUCCEEDED
-  REJECTED
   FAILED
-  CANCELED
-  EXPIRED
+  CANCELLED
+  REFUNDED
 }
 
 enum FinalExportStatus {
@@ -475,7 +472,7 @@ model GenerationTask {
   idempotencyKey         String               @unique
   provider               String               @default("byteplus")
   modelId                String
-  status                 GenerationTaskStatus @default(CREATED)
+  status                 GenerationTaskStatus @default(PENDING)
   requestPayload         Json
   responsePayload        Json?
   errorCode              String?

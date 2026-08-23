@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentUser } from "@/lib/auth";
 import { startSceneGeneration } from "@/lib/seedance/service";
+import { toPublicGenerationTask } from "@/lib/seedance/public-task";
 
 const schema = z.object({
   idempotencyKey: z.string().min(16).max(200),
@@ -19,11 +20,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const { id } = await params;
   try {
     const task = await startSceneGeneration({ ...parsed.data, sceneId: id, userId: user.id });
-    return NextResponse.json({ success: true, task, demo: task.provider === "byteplus-demo" }, { status: 202 });
+    return NextResponse.json({ success: true, task: toPublicGenerationTask(task), demo: task.provider === "byteplus-demo" }, { status: 202 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Impossible de lancer la génération.";
     const status = message.includes("crédit") || message.includes("budget") || message.includes("plafond") ? 402 : 400;
     return NextResponse.json({ error: message }, { status });
   }
 }
-

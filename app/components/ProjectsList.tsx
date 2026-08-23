@@ -2,12 +2,21 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import ProjectAssetGallery, { type ProjectAsset } from "@/app/components/ProjectAssetGallery";
+import SecureDownloadButton from "@/app/components/SecureDownloadButton";
+import { fetchJson } from "@/lib/client-api";
 
 type Project = {
   id: string;
   titre?: string;
   savedAt?: string;
   aiProvider?: string;
+  title?: string;
+  artistName?: string;
+  category?: string;
+  status?: string;
+  counts?: { scenes: number; generationTasks: number; mediaAssets: number; finalExports: number };
+  mediaAssets?: ProjectAsset[];
 };
 
 export default function ProjectsList() {
@@ -18,13 +27,7 @@ export default function ProjectsList() {
   useEffect(() => {
     async function loadProjects() {
       try {
-        const response = await fetch("/api/projects", { cache: "no-store" });
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data.error || "Impossible de charger les projets.");
-        }
-
+        const data = await fetchJson<{ projects?: Project[] }>("/api/projects", { cache: "no-store" });
         setProjects(data.projects ?? []);
       } catch (projectError) {
         setError(
@@ -77,19 +80,16 @@ export default function ProjectsList() {
   return (
     <div className="grid gap-4">
       {projects.map((project) => (
-        <Link
-          key={project.id}
-          href={`/studio?project=${encodeURIComponent(project.id)}`}
-          className="rounded-3xl border border-slate-800 bg-slate-950 p-6 transition hover:border-cyan-400"
-        >
+        <article key={project.id} className="rounded-3xl border border-slate-800 bg-slate-950 p-6">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
               <h2 className="text-2xl font-black text-white">
-                {project.titre || "Projet video"}
+                {project.title || project.titre || "Projet vidéo"}
               </h2>
               <p className="mt-2 text-sm text-slate-400">
-                Fournisseur IA : {project.aiProvider || "non defini"}
+                {project.category || "Studio Rudyo"} · {project.artistName || "Artiste Rudyo"} · {project.status || "DRAFT"}
               </p>
+              {project.counts ? <p className="mt-2 text-xs text-slate-500">{project.counts.scenes} scène(s) · {project.counts.mediaAssets} média(s) · {project.counts.finalExports} export(s)</p> : null}
             </div>
             <p className="text-sm font-semibold text-cyan-300">
               {project.savedAt
@@ -97,7 +97,13 @@ export default function ProjectsList() {
                 : "Date inconnue"}
             </p>
           </div>
-        </Link>
+          <div className="mt-5 flex flex-wrap gap-3">
+            <Link href={`/studio-clip-seedance?project=${encodeURIComponent(project.id)}`} className="rounded-xl bg-cyan-300 px-4 py-3 font-black text-slate-950">Ouvrir le projet</Link>
+            <SecureDownloadButton href={`/api/projects/${encodeURIComponent(project.id)}/export?format=json`} fallbackName={`rudyo-${project.id}-storyboard.json`} label="Storyboard JSON" className="inline-flex items-center gap-2 rounded-xl border border-slate-700 px-4 py-3 font-bold text-slate-200 disabled:opacity-60" />
+            <SecureDownloadButton href={`/api/projects/${encodeURIComponent(project.id)}/export?format=pdf`} fallbackName={`rudyo-${project.id}-storyboard.pdf`} label="Storyboard PDF" className="inline-flex items-center gap-2 rounded-xl border border-slate-700 px-4 py-3 font-bold text-slate-200 disabled:opacity-60" />
+          </div>
+          <ProjectAssetGallery projectId={project.id} assets={project.mediaAssets || []} />
+        </article>
       ))}
     </div>
   );

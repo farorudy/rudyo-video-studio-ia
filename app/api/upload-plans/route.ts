@@ -72,12 +72,18 @@ export async function POST(req: NextRequest) {
         if (!actualMime || !ALLOWED_MIME_TYPES.has(actualMime)) throw new Error("Le contenu réel du fichier vidéo n’est pas autorisé.");
         const assetId = crypto.randomUUID();
         const storageKey = `users/${user.id}/projects/${projectId}/${assetId}/${fileName}`;
-        const stored = await putStorageBuffer(storageKey, buffer, {
+        await putStorageBuffer(storageKey, buffer, {
           contentType: actualMime,
           access: "private",
         });
-
-        return toClientFileRef(storageKey, stored.url);
+        await prisma.mediaAsset.create({
+          data: {
+            id: assetId, userId: user.id, projectId, type: "REFERENCE_VIDEO", fileName,
+            storageKey, url: toClientFileRef(storageKey), mimeType: actualMime,
+            sizeBytes: buffer.byteLength, metadata: { source: "upload-plans" },
+          },
+        });
+        return { assetId, fileName, downloadUrl: `/api/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}/download` };
       }),
     );
 

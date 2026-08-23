@@ -73,10 +73,17 @@ export async function POST(request: NextRequest) {
     const durationSec = Math.round(Number.parseFloat(stdout.trim()) * 100) / 100;
     if (!Number.isFinite(durationSec) || durationSec <= 0 || durationSec > 3_600) throw new Error("Durée audio invalide.");
     const storageBase = `users/${user.id}/projects/${projectId}/${assetId}`;
-    const storedAudio = await putStorageBuffer(`${storageBase}/audio`, buffer, { contentType: actualMime, access: "private" });
+    await putStorageBuffer(`${storageBase}/audio`, buffer, { contentType: actualMime, access: "private" });
     const analysis = { provider: "local-ffprobe", fileName, durationSec, bpm: durationSec <= 90 ? 124 : durationSec <= 180 ? 112 : 98, sections: sections(durationSec), analyzedAt: new Date().toISOString() };
-    const storedAnalysis = await putStorageText(`${storageBase}/analysis.json`, JSON.stringify(analysis), { contentType: "application/json", access: "private" });
-    const response = { success: true, result: { ...analysis, audioRef: toClientFileRef(`${storageBase}/audio`, storedAudio.url), analysisRef: toClientFileRef(`${storageBase}/analysis.json`, storedAnalysis.url) } };
+    await putStorageText(`${storageBase}/analysis.json`, JSON.stringify(analysis), { contentType: "application/json", access: "private" });
+    await prisma.mediaAsset.create({
+      data: {
+        id: assetId, userId: user.id, projectId, type: "AUDIO", fileName,
+        storageKey: `${storageBase}/audio`, url: toClientFileRef(`${storageBase}/audio`),
+        mimeType: actualMime, sizeBytes: buffer.byteLength, metadata: { analysis },
+      },
+    });
+    const response = { success: true, result: { ...analysis, assetId, downloadUrl: `/api/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(assetId)}/download` } };
     await finishIdempotentRequest(idempotency.record.id, 200, response);
     return NextResponse.json(response);
   } catch (error) {

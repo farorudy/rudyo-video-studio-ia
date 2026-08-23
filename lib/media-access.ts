@@ -24,7 +24,9 @@ export function verifyMediaSignature(assetId: string, expires: number, supplied:
 }
 
 export function signedMediaUrl(assetId: string, ttlSeconds = 15 * 60) {
-  const base = process.env.APP_BASE_URL?.trim().replace(/\/$/, "");
+  const configuredBase = process.env.APP_BASE_URL?.trim();
+  const vercelBase = process.env.VERCEL_URL?.trim();
+  const base = (configuredBase || (vercelBase ? `https://${vercelBase}` : "")).replace(/\/$/, "");
   if (!base) throw new Error("APP_BASE_URL manquant.");
   const parsed = new URL(base);
   if (parsed.protocol !== "https:" || parsed.username || parsed.password) {

@@ -2,6 +2,7 @@ import Link from "next/link";
 import Navigation from "@/app/components/Navigation";
 import { BETA_USER_TESTS, getBetaTestLabel } from "@/lib/beta-user-tests";
 import type { ModelCreditUnit } from "@/lib/model-credit-rates";
+import { notFound } from "next/navigation";
 
 const unitLabels: Record<ModelCreditUnit, string> = {
   "per image": "par image",
@@ -24,6 +25,7 @@ function getMinimumCredits(credits: number, unit: ModelCreditUnit, requirement: 
 }
 
 export default function BetaTestsPage() {
+  if (process.env.BETA_TESTS_ENABLED !== "true") notFound();
   return (
     <main className="min-h-screen bg-[#020617] text-white">
       <Navigation />

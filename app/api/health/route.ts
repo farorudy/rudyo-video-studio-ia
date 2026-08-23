@@ -41,7 +41,7 @@ export async function GET() {
   const localSession =
     process.env.USE_LOCAL_SESSION === "true" && !isProduction;
   const authSecretReady =
-    (process.env.AUTH_COOKIE_SECRET?.trim() ?? "").length >= 32;
+    (process.env.AUTH_SECRET?.trim() || process.env.AUTH_COOKIE_SECRET?.trim() || "").length >= 32;
   const databaseReady = checkDatabaseUrl();
   const provider = resolveDefaultAiProvider();
   const model = resolveModelForProvider(provider);
@@ -72,7 +72,7 @@ export async function GET() {
         ? localSession
           ? "Session locale activée pour les tests."
           : "Secret de session configuré."
-        : "AUTH_COOKIE_SECRET est manquant ou trop court.",
+        : "AUTH_SECRET est manquant ou trop court.",
     ),
     createCheck(
       "database",

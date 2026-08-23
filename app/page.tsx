@@ -9,17 +9,17 @@ import {
   Loader2,
   Mic2,
   Music2,
-  Play,
   Radio,
   Sparkles,
   Upload,
   Wand2,
-  Waves,
 } from "lucide-react";
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import SystemStatus from "@/app/components/SystemStatus";
-import type { RudyoUser, StoryboardResult, VideoType } from "@/lib/types";
+import Navigation from "@/app/components/Navigation";
+import { useSession } from "@/app/components/SessionProvider";
+import type { StoryboardResult, VideoType } from "@/lib/types";
 
 const videoTypes: Array<{
   id: VideoType;
@@ -80,10 +80,7 @@ const sampleShots = [
 ];
 
 export default function HomePage() {
-  const [email, setEmail] = useState("rudy.faro@gmail.com");
-  const [name, setName] = useState("FARO MIRVAL");
-  const [user, setUser] = useState<RudyoUser | null>(null);
-  const [loginLoading, setLoginLoading] = useState(false);
+  const { status: sessionStatus, user, refreshSession, logout } = useSession();
   const [selectedType, setSelectedType] = useState<VideoType>("clip_musical");
   const [project, setProject] = useState(initialProject);
   const [storyboard, setStoryboard] = useState<StoryboardResult | null>(null);
@@ -110,68 +107,6 @@ export default function HomePage() {
           }`,
       )
       .join("\n\n") ?? "";
-
-  useEffect(() => {
-    let active = true;
-
-    async function loadSession() {
-      try {
-        const response = await fetch("/api/session", { cache: "no-store" });
-        const data = await response.json();
-
-        if (!active || !response.ok || !data.success) return;
-
-        setUser({
-          id: data.user.id,
-          email: data.user.email,
-          name: data.user.name,
-          credits: data.credits,
-        });
-      } catch {
-        // Session absente ou expirée.
-      }
-    }
-
-    loadSession();
-
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  async function handleLogin(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError("");
-    setLoginLoading(true);
-
-    try {
-      const response = await fetch("/api/session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, name }),
-      });
-      const data = await response.json();
-
-      if (!response.ok || !data.success) {
-        throw new Error(data.error ?? "Connexion impossible.");
-      }
-
-      setUser({
-        id: data.user.id,
-        email: data.user.email,
-        name: data.user.name,
-        credits: data.credits,
-      });
-    } catch (loginError) {
-      setError(
-        loginError instanceof Error
-          ? loginError.message
-          : "Connexion impossible.",
-      );
-    } finally {
-      setLoginLoading(false);
-    }
-  }
 
   async function handleGenerate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -210,14 +145,7 @@ export default function HomePage() {
         });
         const balanceData = await balanceResponse.json();
         if (balanceResponse.ok && balanceData.success) {
-          setUser((currentUser) =>
-            currentUser
-              ? {
-                  ...currentUser,
-                  credits: balanceData.credits,
-                }
-              : currentUser,
-          );
+          await refreshSession();
         }
       }
     } catch (generationError) {
@@ -297,46 +225,13 @@ export default function HomePage() {
 
   return (
     <main className="min-h-screen overflow-x-hidden bg-[#05070f] text-slate-100">
+      <Navigation />
       <section className="relative min-h-[92svh] border-b border-white/10">
         <div className="absolute inset-0 bg-[linear-gradient(120deg,rgba(8,13,31,0.66),rgba(5,7,15,0.88)),url('/globe.svg')] bg-[length:cover,44rem] bg-[position:center,right_-8rem_top_3rem] bg-no-repeat opacity-90" />
         <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-[#05070f] to-transparent" />
 
-        <div className="relative mx-auto grid max-w-7xl gap-10 px-4 pb-10 pt-8 sm:px-6 lg:grid-cols-[1fr_440px] lg:px-8">
+        <div className="relative mx-auto grid max-w-7xl gap-10 px-4 pb-10 pt-24 sm:px-6 lg:grid-cols-[1fr_440px] lg:px-8">
           <div className="flex min-h-[82svh] flex-col justify-between">
-            <header className="flex flex-wrap items-center justify-between gap-4">
-              <Link href="/" className="flex items-center gap-3">
-                <span className="grid h-11 w-11 place-items-center rounded-lg border border-emerald-300/40 bg-emerald-300 text-slate-950">
-                  <Waves className="h-5 w-5" />
-                </span>
-                <span>
-                  <span className="block text-base font-black text-white">
-                    Rudyo Video Studio IA
-                  </span>
-                  <span className="block text-xs font-semibold uppercase tracking-[0.18em] text-emerald-200">
-                    Farozik production
-                  </span>
-                </span>
-              </Link>
-
-              <nav className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] p-1 text-sm">
-                <a className="rounded-md px-3 py-2 text-slate-200" href="#studio">
-                  Studio
-                </a>
-                <Link
-                  className="rounded-md px-3 py-2 text-slate-400 hover:text-white"
-                  href="/offres"
-                >
-                  Offres
-                </Link>
-                <Link
-                  className="rounded-md px-3 py-2 text-slate-400 hover:text-white"
-                  href="/credits"
-                >
-                  Crédits
-                </Link>
-              </nav>
-            </header>
-
             <div className="max-w-4xl py-14 lg:py-20">
               <p className="inline-flex items-center gap-2 rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-3 py-2 text-sm font-bold text-emerald-100">
                 <Sparkles className="h-4 w-4" />
@@ -351,22 +246,30 @@ export default function HomePage() {
                 alternative plus complète pour artistes Suno, Udio, Spotify,
                 associations et formations.
               </p>
+              <p className="mt-4 max-w-2xl font-semibold text-emerald-100">
+                Créez votre compte et commencez votre premier clip avec Rudyo AI.
+              </p>
 
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-                <a
-                  href="#studio"
-                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-300 px-5 py-4 font-black text-slate-950 transition hover:bg-emerald-200"
-                >
-                  <Wand2 className="h-5 w-5" />
-                  Créer un storyboard
-                </a>
-                <Link
-                  href="/studio"
-                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/15 bg-white/[0.04] px-5 py-4 font-bold text-white transition hover:bg-white/[0.08]"
-                >
-                  <Radio className="h-5 w-5" />
-                  Ouvrir le studio avancé
-                </Link>
+                {sessionStatus === "authenticated" && user ? (
+                  <>
+                    <Link href="/dashboard" className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-300 px-5 py-4 font-black text-slate-950 transition hover:bg-emerald-200">
+                      <Wand2 className="h-5 w-5" />Mon espace Rudyo
+                    </Link>
+                    <Link href="/projects" className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/15 bg-white/[0.04] px-5 py-4 font-bold text-white transition hover:bg-white/[0.08]">
+                      <Film className="h-5 w-5" />Mes projets
+                    </Link>
+                  </>
+                ) : sessionStatus === "anonymous" ? (
+                  <>
+                    <Link href="/inscription" className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-300 px-5 py-4 font-black text-slate-950 transition hover:bg-emerald-200">
+                      <Wand2 className="h-5 w-5" />Créer un compte
+                    </Link>
+                    <Link href="/login" className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/15 bg-white/[0.04] px-5 py-4 font-bold text-white transition hover:bg-white/[0.08]">
+                      <Radio className="h-5 w-5" />Se connecter
+                    </Link>
+                  </>
+                ) : <span className="text-sm text-slate-400">Vérification de la session…</span>}
               </div>
             </div>
 
@@ -394,7 +297,7 @@ export default function HomePage() {
                   Apercu agent
                 </p>
                 <h2 className="mt-1 text-xl font-black text-white">
-                  Clip board Rudyo
+                  Clip board Rudyo AI
                 </h2>
               </div>
               <Film className="h-7 w-7 text-emerald-200" />
@@ -447,53 +350,6 @@ export default function HomePage() {
       >
         <aside className="space-y-6">
           <section className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
-            <div className="flex items-center gap-3">
-              <div className="grid h-10 w-10 place-items-center rounded-lg bg-emerald-300 text-slate-950">
-                <Play className="h-5 w-5" />
-              </div>
-              <div>
-                <h2 className="text-lg font-black text-white">Session Rudyo</h2>
-                <p className="text-sm text-slate-400">
-                  Connectez-vous pour générer
-                </p>
-              </div>
-            </div>
-
-            <form onSubmit={handleLogin} className="mt-5 space-y-4">
-              <label className="block">
-                <span className="text-sm font-medium text-slate-300">Email</span>
-                <input
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  type="email"
-                  className="mt-2 w-full rounded-lg border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-emerald-300"
-                  placeholder="rudy.faro@gmail.com"
-                  required
-                />
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium text-slate-300">Nom</span>
-                <input
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  className="mt-2 w-full rounded-lg border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-emerald-300"
-                  placeholder="FARO MIRVAL"
-                />
-              </label>
-              <button
-                type="submit"
-                disabled={loginLoading}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-300 px-4 py-3 font-black text-slate-950 transition hover:bg-emerald-200 disabled:cursor-wait disabled:opacity-70"
-              >
-                {loginLoading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Play className="h-4 w-4" />
-                )}
-                Se connecter
-              </button>
-            </form>
-
             {user ? (
               <div className="mt-5 rounded-lg border border-emerald-300/30 bg-emerald-300/10 p-4">
                 <p className="font-bold text-emerald-100">
@@ -505,8 +361,23 @@ export default function HomePage() {
                 <p className="mt-3 text-3xl font-black text-white">
                   {user.credits.balance} crédits
                 </p>
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <Link href="/dashboard" className="rounded-lg bg-emerald-300 px-4 py-3 text-center font-black text-slate-950">Mon espace</Link>
+                  <button type="button" onClick={() => void logout()} className="rounded-lg border border-white/15 px-4 py-3 font-bold text-white">Déconnexion</button>
+                </div>
               </div>
-            ) : null}
+            ) : (
+              <div>
+                <h2 className="text-lg font-black text-white">Accès sécurisé Rudyo AI</h2>
+                <p className="mt-2 text-sm leading-6 text-slate-400">
+                  La connexion exige un code OTP temporaire envoyé par e-mail.
+                </p>
+                <div className="mt-4 grid gap-2">
+                  <Link href="/login" className="rounded-lg border border-white/15 px-4 py-3 text-center font-bold text-white">Connexion</Link>
+                  <Link href="/inscription" className="rounded-lg bg-emerald-300 px-4 py-3 text-center font-black text-slate-950">Inscription</Link>
+                </div>
+              </div>
+            )}
           </section>
 
           <SystemStatus />

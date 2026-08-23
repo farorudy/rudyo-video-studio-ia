@@ -62,6 +62,9 @@ Variables d'environnement importantes :
 
 - `BLOB_READ_WRITE_TOKEN`: active le stockage cloud.
 - `CLOUD_STORAGE_PREFIX` (optionnel): préfixe des objets Blob (par défaut `rudyo-video-studio`).
+- `MAX_IMAGE_UPLOAD_MB`, `MAX_AUDIO_UPLOAD_MB`, `MAX_VIDEO_UPLOAD_MB`: tailles maximales validées côté serveur (20, 100 et 250 Mo par défaut).
+- `NEXT_PUBLIC_MAX_IMAGE_UPLOAD_MB`, `NEXT_PUBLIC_MAX_AUDIO_UPLOAD_MB`, `NEXT_PUBLIC_MAX_VIDEO_UPLOAD_MB`: mêmes limites côté navigateur pour refuser un fichier avant l’envoi.
+- `MAX_FILES_PER_PROJECT` (défaut `100`) et `MAX_USER_STORAGE_MB` (défaut `5120`): quotas d’import par projet et par utilisateur.
 - `REPLICATE_API_TOKEN` (optionnel): génération vidéo automatisée.
 - `REPLICATE_VIDEO_MODEL` (optionnel): modèle Replicate, ex. `bytedance/seedance-1-pro`.
 - `ARK_API_KEY` (recommandé): clé serveur BytePlus ModelArk pour générer les clips avec Seedance.

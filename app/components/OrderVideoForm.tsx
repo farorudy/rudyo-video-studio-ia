@@ -51,7 +51,7 @@ export default function OrderVideoForm() {
       }
 
       setStatus("success");
-      setMessage("Demande recue. Farozik peut revenir vers vous avec un devis.");
+      setMessage(`Demande reçue. Votre identifiant de confirmation est ${data.requestId}.`);
     } catch (orderError) {
       setStatus("error");
       setMessage(

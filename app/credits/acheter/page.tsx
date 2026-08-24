@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import CheckoutButton from "@/app/components/CheckoutButton";
 import Navigation from "@/app/components/Navigation";
+import ClipPlanCards from "@/app/components/ClipPlanCards";
 import { getAllCreditPacks, getFirstPurchaseBonusTokens } from "@/lib/stripe";
 
 export const metadata: Metadata = {
@@ -43,6 +44,10 @@ export default function BuyCreditsPage() {
             Offre de bienvenue : +{bonus} crédits ajoutés automatiquement lors de votre premier achat.
           </div>
         ) : null}
+
+        <div className="mt-10">
+          <ClipPlanCards compact />
+        </div>
 
         <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
           {packs.map((pack, index) => (

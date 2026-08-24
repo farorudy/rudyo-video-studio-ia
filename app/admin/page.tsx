@@ -36,6 +36,7 @@ type AdminData = {
     aiUsage: number;
   };
   users: AdminUser[];
+  clipOffers: Array<{ code: string; name: string; maxCredits: number; maxPriceEur: number; maxDurationSeconds: number; economics: { enabled: boolean; clientRevenueEur: number; providerCostEur: number; workerCostEur: number; storageCostEur: number; retryReserveEur: number; marginEur: number; actualProviderCostEur: number; actualMarginEur: number; completedProductions: number } }>;
 };
 
 const plans: UserPlan[] = ["FREE", "STARTER", "CREATOR", "STUDIO"];
@@ -252,6 +253,7 @@ export default function AdminPage() {
           </div>
           <div className="flex items-center gap-3 text-sm">
             <span className="hidden text-slate-400 sm:inline">{data?.admin.email}</span>
+            <Link href="/admin/system-tests" className="rounded-xl border border-cyan-400/40 px-4 py-2 font-bold text-cyan-200 hover:bg-cyan-400/10">Tests système</Link>
             <button
               className="rounded-xl border border-slate-700 px-4 py-2 hover:bg-slate-800"
               onClick={handleLogout}
@@ -276,6 +278,25 @@ export default function AdminPage() {
             </div>
           ))}
         </section>
+        {data?.clipOffers?.length ? <section className="mt-8 space-y-5">
+          <h2 className="text-2xl font-black">Économie des formules clips</h2>
+          {data.clipOffers.map((offer) => <article key={offer.code} className="rounded-3xl border border-cyan-400/30 bg-cyan-950/20 p-6">
+            <h3 className="text-xl font-black">{offer.name}</h3>
+            <p className="mt-2 text-slate-300">Plafond client : {offer.maxCredits.toLocaleString("fr-FR")} crédits / {offer.maxPriceEur} € pour {offer.maxDurationSeconds} secondes.</p>
+            <p className="mt-2 text-xs text-slate-400">{offer.economics.completedProductions} production(s) mesurée(s).</p>
+            <div className="mt-5 grid gap-3 sm:grid-cols-3 lg:grid-cols-4">{[
+              ["Recette plafond", offer.economics.clientRevenueEur],
+              ["BytePlus estimé", offer.economics.providerCostEur],
+              ["BytePlus réel cumulé", offer.economics.actualProviderCostEur],
+              ["Worker", offer.economics.workerCostEur],
+              ["Stockage", offer.economics.storageCostEur],
+              ["Réserve retry", offer.economics.retryReserveEur],
+              ["Marge estimée", offer.economics.marginEur],
+              ["Marge réelle cumulée", offer.economics.actualMarginEur],
+            ].map(([label, value]) => <div key={String(label)} className="rounded-xl bg-slate-950 p-3"><p className="text-xs text-slate-400">{label}</p><p className="mt-1 font-black text-cyan-200">{Number(value).toFixed(2)} €</p></div>)}</div>
+            <p className={`mt-4 font-bold ${offer.economics.enabled ? "text-emerald-300" : "text-rose-300"}`}>{offer.economics.enabled ? "Formule économiquement autorisée" : "Formule bloquée : validation commerciale requise"}</p>
+          </article>)}
+        </section> : null}
 
         {message ? (
           <p className="mt-6 rounded-xl border border-emerald-500/40 bg-emerald-950/40 p-4 text-emerald-200">

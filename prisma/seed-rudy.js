@@ -38,6 +38,11 @@ const initialCredits = Number.parseInt(process.env.INITIAL_CREDITS ?? "20", 10);
 const credits = Number.isFinite(initialCredits) && initialCredits >= 0 ? initialCredits : 20;
 
 async function main() {
+  await prisma.creditPack.upsert({
+    where: { slug: "tiktok-clip-complet" },
+    update: { name: "Pack Clip TikTok complet", priceCents: 3500, credits: 3500, active: true },
+    create: { slug: "tiktok-clip-complet", name: "Pack Clip TikTok complet", priceCents: 3500, credits: 3500, active: true },
+  });
   const user = await prisma.user.upsert({
     where: { email },
     update: {

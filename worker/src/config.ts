@@ -1,0 +1,67 @@
+import os from "node:os";
+import path from "node:path";
+import { z } from "zod";
+
+const positiveInt = (fallback: number) => z.coerce.number().int().positive().default(fallback);
+
+const schema = z.object({
+  DATABASE_URL: z.string().min(1),
+  BLOB_READ_WRITE_TOKEN: z.string().min(1),
+  CLOUD_STORAGE_PREFIX: z.string().regex(/^[a-zA-Z0-9/_-]+$/).default("rudyo-video-studio"),
+  MONTAGE_WORKER_SECRET: z.string().min(32).optional(),
+  WORKER_SHARED_SECRET: z.string().min(32).optional(),
+  WORKER_MOCK_MODE: z.enum(["true", "false"]).default("true"),
+  APP_BASE_URL: z.string().url().optional(),
+  ARK_API_KEY: z.string().min(1).optional(),
+  BYTEPLUS_ARK_API_KEY: z.string().min(1).optional(),
+  BYTEPLUS_BASE_URL: z.string().url().default("https://ark.ap-southeast.bytepluses.com/api/v3"),
+  MONTAGE_WORKER_ID: z.string().min(1).optional(),
+  MONTAGE_WORKER_VERSION: z.string().min(1).default("1.0.0"),
+  MONTAGE_SIGNAL_SECONDS: positiveInt(15).pipe(z.number().min(5).max(60)),
+  MONTAGE_CONCURRENCY: positiveInt(1).pipe(z.number().max(8)),
+  MONTAGE_MAX_ATTEMPTS: positiveInt(3).pipe(z.number().max(20)),
+  MONTAGE_POLL_INTERVAL_MS: positiveInt(3000).pipe(z.number().min(250).max(60000)),
+  MONTAGE_LEASE_SECONDS: positiveInt(120).pipe(z.number().min(30).max(3600)),
+  MONTAGE_HEARTBEAT_SECONDS: positiveInt(30).pipe(z.number().min(5).max(300)),
+  MONTAGE_MAX_INPUT_BYTES: positiveInt(1024 * 1024 * 1024),
+  MONTAGE_MAX_OUTPUT_BYTES: positiveInt(2 * 1024 * 1024 * 1024),
+  MONTAGE_MIN_OUTPUT_BYTES: positiveInt(1024),
+  MONTAGE_MAX_DURATION_SECONDS: positiveInt(900).pipe(z.number().max(7200)),
+  MONTAGE_MAX_SCENES: positiveInt(100).pipe(z.number().max(500)),
+  MONTAGE_TEMP_DIR: z.string().default(path.join(os.tmpdir(), "rudyo-montage")),
+  PORT: positiveInt(8080).pipe(z.number().max(65535)),
+  FFMPEG_PATH: z.string().min(1).default("ffmpeg"),
+  FFPROBE_PATH: z.string().min(1).default("ffprobe"),
+});
+
+const parsed = schema.superRefine((value, context) => {
+  if (!value.WORKER_SHARED_SECRET && !value.MONTAGE_WORKER_SECRET) context.addIssue({ code: "custom", path: ["WORKER_SHARED_SECRET"], message: "WORKER_SHARED_SECRET is required" });
+}).parse(process.env);
+
+export const config = {
+  databaseUrl: parsed.DATABASE_URL,
+  blobToken: parsed.BLOB_READ_WRITE_TOKEN,
+  storagePrefix: parsed.CLOUD_STORAGE_PREFIX.replace(/^\/+|\/+$/g, ""),
+  workerSecret: parsed.WORKER_SHARED_SECRET || parsed.MONTAGE_WORKER_SECRET!,
+  mockMode: parsed.WORKER_MOCK_MODE === "true",
+  appBaseUrl: parsed.APP_BASE_URL,
+  arkApiKey: parsed.BYTEPLUS_ARK_API_KEY || parsed.ARK_API_KEY,
+  bytePlusBaseUrl: parsed.BYTEPLUS_BASE_URL.replace(/\/$/, ""),
+  concurrency: parsed.MONTAGE_CONCURRENCY,
+  maxAttempts: parsed.MONTAGE_MAX_ATTEMPTS,
+  pollIntervalMs: parsed.MONTAGE_POLL_INTERVAL_MS,
+  leaseSeconds: parsed.MONTAGE_LEASE_SECONDS,
+  heartbeatSeconds: parsed.MONTAGE_HEARTBEAT_SECONDS,
+  maxInputBytes: parsed.MONTAGE_MAX_INPUT_BYTES,
+  maxOutputBytes: parsed.MONTAGE_MAX_OUTPUT_BYTES,
+  minOutputBytes: parsed.MONTAGE_MIN_OUTPUT_BYTES,
+  maxDurationSeconds: parsed.MONTAGE_MAX_DURATION_SECONDS,
+  maxScenes: parsed.MONTAGE_MAX_SCENES,
+  tempDir: path.resolve(parsed.MONTAGE_TEMP_DIR),
+  port: parsed.PORT,
+  ffmpegPath: parsed.FFMPEG_PATH,
+  ffprobePath: parsed.FFPROBE_PATH,
+  workerId: parsed.MONTAGE_WORKER_ID || `${os.hostname()}:${process.pid}`,
+  workerVersion: parsed.MONTAGE_WORKER_VERSION,
+  signalSeconds: parsed.MONTAGE_SIGNAL_SECONDS,
+};

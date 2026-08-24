@@ -1,6 +1,7 @@
 import Link from "next/link";
 import CheckoutButton from "@/app/components/CheckoutButton";
 import Navigation from "@/app/components/Navigation";
+import ClipPlanCards from "@/app/components/ClipPlanCards";
 import {
   MODEL_CREDIT_CATEGORIES,
   MODEL_CREDIT_CATEGORY_LABELS,
@@ -92,6 +93,8 @@ export default function PricingPage() {
           </div>
         </div>
       </section>
+
+      <ClipPlanCards />
 
       <section className="mx-auto max-w-7xl px-4 pb-14 md:px-8">
         <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   CREDIT_COSTS,
   CREDIT_TOOL_DESCRIPTIONS,
@@ -140,6 +141,7 @@ export default function StudioPage() {
   return (
     <main className="min-h-screen bg-[#020617] px-4 py-8 text-white md:px-8">
       <div className="mx-auto max-w-7xl">
+        <section className="mb-6 flex flex-col gap-4 rounded-2xl border border-cyan-400/30 bg-cyan-950/20 p-5 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-black text-cyan-100">Clips automatiques jusqu’à 7 minutes</p><p className="mt-1 text-sm text-slate-300">TikTok jusqu’à 3 min 30, Long jusqu’à 5 minutes, Premium jusqu’à 7 minutes. Prix proportionnel et achat du manque exact.</p></div><Link href="/" className="rounded-xl bg-cyan-300 px-5 py-3 text-center font-black text-slate-950">Créer en un clic</Link></section>
         <section className="mb-8 rounded-[2rem] border border-slate-800 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 shadow-2xl md:p-10">
           <div className="flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
             <div>

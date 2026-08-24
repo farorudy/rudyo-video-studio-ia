@@ -5,21 +5,23 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "@/app/components/SessionProvider";
 
-const links = [
-  { href: "/", label: "Accueil" },
-  { href: "/pricing", label: "Tarifs" },
-  { href: "/studio", label: "Studio" },
-  { href: "/studio-clip-seedance", label: "Studio Clip Seedance" },
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/projects", label: "Projets" },
-  { href: "/order-video", label: "Commande video" },
-];
-
 export default function Navigation() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const router = useRouter();
   const { status, user, logout } = useSession();
+  const links = status === "authenticated"
+    ? [
+        { href: "/", label: "Créer mon clip" },
+        { href: "/creations", label: "Mes créations" },
+        { href: "/credits", label: "Mes crédits" },
+        { href: "/dashboard", label: "Mon compte" },
+      ]
+    : [
+        { href: "/", label: "Accueil" },
+        { href: "/#comment-ca-marche", label: "Comment ça marche" },
+        { href: "/pricing", label: "Tarifs" },
+      ];
 
   async function handleLogout() {
     setLoggingOut(true);

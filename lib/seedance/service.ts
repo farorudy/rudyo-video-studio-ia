@@ -3,6 +3,8 @@ import "server-only";
 import { GenerationTaskStatus, MediaAssetType, StoryboardSceneStatus } from "@prisma/client";
 import { confirmCreditUsage, refundCreditUsage, reserveCredits } from "@/lib/credit-utils";
 import { prisma } from "@/lib/prisma";
+import { enqueueAutomaticMontageIfReady } from "@/lib/montage/queue";
+import { getMontageServiceStatus } from "@/lib/montage/worker-status";
 import { signedMediaUrl } from "@/lib/media-access";
 import { putStorageBuffer, toClientFileRef } from "@/lib/storage";
 import {
@@ -110,6 +112,7 @@ export type StartSceneGenerationInput = {
   preview?: boolean;
   economicalDraft?: boolean;
   referenceAssetIds?: string[];
+  includedInProjectReservation?: boolean;
 };
 
 export async function startSceneGeneration(input: StartSceneGenerationInput) {
@@ -118,12 +121,17 @@ export async function startSceneGeneration(input: StartSceneGenerationInput) {
     if (existing.userId !== input.userId) throw new Error("Clé d’idempotence invalide.");
     return existing;
   }
+  if (!isBytePlusDemoMode()) {
+    const montageService = await getMontageServiceStatus();
+    if (!montageService.available) throw new Error("Le service de création est momentanément indisponible. Aucun crédit ne sera débité.");
+  }
 
   const scene = await prisma.storyboardScene.findFirst({
     where: { id: input.sceneId, project: { userId: input.userId } },
     include: { project: { include: { consentRecords: true } } },
   });
   if (!scene) throw new Error("Scène introuvable.");
+  if (input.includedInProjectReservation && !scene.project.creditReservationId) throw new Error("Réservation commerciale du projet introuvable.");
   if (scene.locked) throw new Error("Cette scène est verrouillée.");
 
   const assets = input.referenceAssetIds?.length
@@ -186,7 +194,7 @@ export async function startSceneGeneration(input: StartSceneGenerationInput) {
     watermark: scene.watermark,
   });
   const credits = quote.totalCredits;
-  await assertRateAndBudget(input.userId, scene.projectId, credits);
+  if (!input.includedInProjectReservation) await assertRateAndBudget(input.userId, scene.projectId, credits);
 
   const task = await prisma.generationTask.create({
     data: {
@@ -197,7 +205,8 @@ export async function startSceneGeneration(input: StartSceneGenerationInput) {
       provider: isBytePlusDemoMode() ? "byteplus-demo" : "byteplus",
       modelId: model.modelId,
       requestPayload: { ...requestPayload, rudyoQuote: quote } as object,
-      estimatedCredits: isBytePlusDemoMode() ? 0 : credits,
+      estimatedCredits: input.includedInProjectReservation || isBytePlusDemoMode() ? 0 : credits,
+      billingMode: input.includedInProjectReservation ? "INCLUDED_IN_PROJECT" : "BILLABLE",
       estimatedCostUsd: null,
     },
   });
@@ -217,7 +226,7 @@ export async function startSceneGeneration(input: StartSceneGenerationInput) {
     });
   }
 
-  const reservation = await reserveCredits({
+  const reservation = input.includedInProjectReservation ? null : await reserveCredits({
     userId: input.userId,
     action: "seedance_video",
     amount: credits,
@@ -225,18 +234,18 @@ export async function startSceneGeneration(input: StartSceneGenerationInput) {
     metadata: { taskId: task.id, projectId: scene.projectId },
     idempotencyKey: `seedance:${input.idempotencyKey}`,
   });
-  await prisma.generationTask.update({ where: { id: task.id }, data: { status: GenerationTaskStatus.SUBMITTED, creditReservationId: reservation.id } });
+  await prisma.generationTask.update({ where: { id: task.id }, data: { status: GenerationTaskStatus.SUBMITTED, creditReservationId: reservation?.id } });
 
   let remote: BytePlusTask;
   try {
     remote = await bytePlusClient.createTask(requestPayload);
   } catch (error) {
     const unknown = error instanceof BytePlusApiError && error.code === "submission_unknown";
-    if (!unknown) await refundCreditUsage(reservation.id);
+    if (!unknown && reservation) await refundCreditUsage(reservation.id);
     return prisma.generationTask.update({
       where: { id: task.id },
       data: {
-        status: unknown ? GenerationTaskStatus.SUBMITTED : GenerationTaskStatus.REFUNDED,
+        status: unknown ? GenerationTaskStatus.SUBMITTED : reservation ? GenerationTaskStatus.REFUNDED : GenerationTaskStatus.FAILED,
         errorCode: error instanceof BytePlusApiError ? error.code : "generation_error",
         errorMessage: safeMessage(error),
       },
@@ -250,7 +259,6 @@ export async function startSceneGeneration(input: StartSceneGenerationInput) {
         data: { bytePlusTaskId: remote.id, status: mapRemoteStatus(remote), responsePayload: remote as object },
       });
     });
-  await confirmCreditUsage(reservation.id, { providerTaskId: remote.id });
   return submitted;
 }
 
@@ -350,6 +358,12 @@ export async function syncGenerationTask(taskId: string, userId: string) {
   if (TERMINAL_FAILURES.has(status) && !TERMINAL_FAILURES.has(stored.status) && stored.creditReservationId) {
     await refundCreditUsage(stored.creditReservationId);
     updated = await prisma.generationTask.update({ where: { id: stored.id }, data: { status: GenerationTaskStatus.REFUNDED } });
+  }
+  if (status === GenerationTaskStatus.SUCCEEDED && permanentVideoUrl && stored.creditReservationId) {
+    await confirmCreditUsage(stored.creditReservationId, { providerTaskId: stored.bytePlusTaskId || undefined });
+  }
+  if (status === GenerationTaskStatus.SUCCEEDED && permanentVideoUrl) {
+    await enqueueAutomaticMontageIfReady(stored.projectId, userId);
   }
   return updated;
 }

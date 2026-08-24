@@ -170,3 +170,27 @@ export function isSameOriginRequest(request: NextRequest) {
   const origin = request.headers.get("origin");
   return !origin || origin === request.nextUrl.origin;
 }
+
+function csrfForSession(sessionToken: string) {
+  return createHmac("sha256", getSessionSecret())
+    .update(`admin-csrf:${sessionToken}`)
+    .digest("base64url");
+}
+
+export function getAdminCsrfToken(request: NextRequest) {
+  const sessionToken = request.cookies.get(ADMIN_COOKIE_NAME)?.value;
+  return sessionToken && readAdminSessionToken(sessionToken) ? csrfForSession(sessionToken) : null;
+}
+
+export function verifyAdminCsrfToken(request: NextRequest) {
+  const expected = getAdminCsrfToken(request);
+  const provided = request.headers.get("x-csrf-token")?.trim();
+  if (!expected || !provided) return false;
+  return safeEqual(Buffer.from(expected), Buffer.from(provided));
+}
+
+export function hasStrictSameOrigin(request: NextRequest) {
+  const origin = request.headers.get("origin");
+  const fetchSite = request.headers.get("sec-fetch-site");
+  return origin === request.nextUrl.origin && (!fetchSite || fetchSite === "same-origin");
+}

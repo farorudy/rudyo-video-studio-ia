@@ -1,6 +1,7 @@
 import path from "node:path";
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
+import { verifyDownloadSignature } from "@/lib/media-access";
 import { prisma } from "@/lib/prisma";
 import { openStorageStream, storageKeyFromClientRef } from "@/lib/storage";
 
@@ -14,11 +15,15 @@ function cleanDownloadName(value: string) {
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const user = await getCurrentUser(request);
-    if (!user || user.localSession) return NextResponse.json({ error: "Vous devez vous connecter pour télécharger ce résultat." }, { status: 401 });
     const { id } = await params;
+    const expires = Number(request.nextUrl.searchParams.get("expires"));
+    const supplied = request.nextUrl.searchParams.get("signature") || "";
+    const signed = Boolean(supplied) && verifyDownloadSignature(id, expires, supplied);
+    const user = signed ? null : await getCurrentUser(request);
+    if (!signed && (!user || user.localSession)) return NextResponse.json({ error: "Vous devez vous connecter pour télécharger ce résultat." }, { status: 401 });
 
-  const asset = await prisma.mediaAsset.findUnique({ where: { id }, include: { project: { select: { userId: true, title: true } } } });
+  const asset = await prisma.mediaAsset.findUnique({ where: { id }, include: { project: { select: { userId: true, title: true, source: true } } } });
+  let systemTest = asset?.project.source === "SYSTEM_TEST";
   let ownerId = asset?.project.userId;
   let storageKey = asset?.storageKey || null;
   let mimeType = asset?.mimeType || "application/octet-stream";
@@ -27,7 +32,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   if (!asset) {
     const task = await prisma.generationTask.findUnique({
       where: { id },
-      include: { project: { select: { userId: true, title: true } }, scene: { select: { order: true } } },
+      include: { project: { select: { userId: true, title: true, source: true } }, scene: { select: { order: true } } },
     });
     if (task) {
       if (task.status !== "SUCCEEDED") return NextResponse.json({ error: "Le résultat est encore en cours de génération." }, { status: 409 });
@@ -35,22 +40,25 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       storageKey = storageKeyFromClientRef(task.permanentVideoUrl);
       mimeType = "video/mp4";
       fileName = `rudyo-${task.project.title}-scene-${String(task.scene.order).padStart(2, "0")}.mp4`;
+      systemTest = task.project.source === "SYSTEM_TEST";
     }
   }
 
   if (!ownerId) {
-    const finalExport = await prisma.finalExport.findUnique({ where: { id }, include: { project: { select: { userId: true, title: true } } } });
+    const finalExport = await prisma.finalExport.findUnique({ where: { id }, include: { project: { select: { userId: true, title: true, source: true, createdAt: true } } } });
     if (finalExport) {
       if (finalExport.status !== "COMPLETED") return NextResponse.json({ error: "Le résultat est encore en cours de génération." }, { status: 409 });
       ownerId = finalExport.project.userId;
       storageKey = finalExport.storageKey || storageKeyFromClientRef(finalExport.url);
       mimeType = "video/mp4";
-      fileName = `rudyo-${finalExport.project.title}-export-final.mp4`;
+      fileName = `rudyo-${finalExport.project.title}-${finalExport.project.createdAt.getUTCFullYear()}.mp4`;
+      systemTest = finalExport.project.source === "SYSTEM_TEST";
     }
   }
 
   if (!ownerId) return NextResponse.json({ error: "Le fichier demandé n’est plus disponible." }, { status: 404 });
-  if (ownerId !== user.id) return NextResponse.json({ error: "Ce résultat ne vous appartient pas." }, { status: 403 });
+  if (systemTest) return NextResponse.json({ error: "Ce résultat système exige une session administrateur." }, { status: 403 });
+  if (!signed && ownerId !== user!.id) return NextResponse.json({ error: "Ce résultat ne vous appartient pas." }, { status: 403 });
   if (!storageKey) return NextResponse.json({ error: "Le fichier demandé n’est plus disponible." }, { status: 404 });
 
     const stored = await openStorageStream(storageKey);

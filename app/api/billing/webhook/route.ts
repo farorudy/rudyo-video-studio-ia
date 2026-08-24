@@ -8,6 +8,9 @@ import {
 } from "@/lib/stripe";
 import { prisma } from "@/lib/prisma";
 import { getOrCreateUserByEmail } from "@/lib/auth";
+import { quoteClip } from "@/lib/tiktok-offer";
+import { type AutomaticClipPlanCode } from "@/lib/clip-pricing";
+import { validateClipTopUpFulfillment } from "@/lib/clip-topup";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -265,6 +268,55 @@ export async function POST(req: NextRequest) {
             sessionId: session.id,
           });
           break;
+        }
+
+        if (mode === "clip_topup" && metadata.projectId) {
+          const project = await prisma.videoProject.findFirst({
+            where: { id: metadata.projectId, userId: user.id, status: "DRAFT", clipPlan: { not: null } },
+            select: { id: true, billedDurationSeconds: true, durationSeconds: true, clipPlan: true },
+          });
+          if (!project) throw new Error("Projet de recharge introuvable.");
+          if (!project.clipPlan || project.clipPlan === "CUSTOM") throw new Error("Formule de recharge invalide.");
+          const quote = quoteClip(project.billedDurationSeconds || project.durationSeconds || 0, 0, project.clipPlan as AutomaticClipPlanCode);
+          if (!quote.fitsSelectedPlan) throw new Error("Formule de recharge invalide.");
+          const purchasedCredits = Number.parseInt(metadata.tokens || "", 10);
+          const balanceAtCheckout = Number.parseInt(metadata.balanceAtCheckout || "", 10);
+          if (!Number.isInteger(purchasedCredits)) throw new Error("Montant de recharge incohérent.");
+          validateClipTopUpFulfillment({ requiredCredits: quote.totalCredits, balanceAtCheckout, purchasedCredits, amountTotal: session.amount_total });
+          if (!(await hasProcessedStripeSession(session.id))) {
+            await prisma.$transaction(async (tx) => {
+              const existing = await tx.transaction.findUnique({ where: { stripeSessionId: session.id }, select: { id: true } });
+              if (existing) return;
+              await tx.transaction.create({
+                data: {
+                  userId: user.id,
+                  stripeSessionId: session.id,
+                  amount: purchasedCredits,
+                  tokens: purchasedCredits,
+                  status: "CONFIRMED",
+                  metadata: { productId, mode, projectId: project.id, plan: quote.plan, normalizedSeconds: quote.normalizedSeconds, requiredCredits: quote.totalCredits, stripeCustomerId: customerId },
+                },
+              });
+              await tx.creditTransaction.create({
+                data: {
+                  userId: user.id,
+                  type: "PURCHASE",
+                  action: "CLIP_PACK",
+                  creditsAmount: purchasedCredits,
+                  description: `Recharge exacte · ${quote.planName}`,
+                  idempotencyKey: `stripe-session:${session.id}`,
+                  status: "CONFIRMED",
+                  confirmedAt: new Date(),
+                  metadata: { stripeSessionId: session.id, projectId: project.id, amount: session.amount_total, plan: quote.plan },
+                },
+              });
+              await tx.user.update({
+                where: { id: user.id },
+                data: { credits: { increment: purchasedCredits }, creditsTotal: { increment: purchasedCredits }, creditsRemaining: { increment: purchasedCredits }, billingStatus: "ACTIVE" },
+              });
+              await tx.videoProject.update({ where: { id: project.id }, data: { paymentCompletedAt: new Date(), status: "DRAFT" } });
+            });
+          }
         }
 
         if (mode === "credit" && productId) {

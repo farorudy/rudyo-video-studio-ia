@@ -1,11 +1,15 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 
 type Props = {
-  searchParams: Promise<{ session_id?: string }>;
+  searchParams: Promise<{ session_id?: string; projectId?: string }>;
 };
 
 export default async function SuccesPage({ searchParams }: Props) {
-  const { session_id: sessionId } = await searchParams;
+  const { session_id: sessionId, projectId } = await searchParams;
+  if (projectId) {
+    redirect(`/?resumeProjectId=${encodeURIComponent(projectId)}&payment=success`);
+  }
 
   return (
     <main className="min-h-screen bg-[#050816] px-6 text-slate-100">

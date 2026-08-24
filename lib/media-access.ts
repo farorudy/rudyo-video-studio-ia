@@ -14,6 +14,10 @@ function signature(assetId: string, expires: number) {
     .digest("base64url");
 }
 
+function downloadSignature(assetId: string, expires: number) {
+  return createHmac("sha256", secret()).update(`download:${assetId}:${expires}`, "utf8").digest("base64url");
+}
+
 export function verifyMediaSignature(assetId: string, expires: number, supplied: string) {
   if (!Number.isSafeInteger(expires) || expires <= Math.floor(Date.now() / 1000) || expires > Math.floor(Date.now() / 1000) + 3600) {
     return false;
@@ -37,4 +41,17 @@ export function signedMediaUrl(assetId: string, ttlSeconds = 15 * 60) {
   url.searchParams.set("expires", String(expires));
   url.searchParams.set("signature", signature(assetId, expires));
   return url.toString();
+}
+
+export function verifyDownloadSignature(assetId: string, expires: number, supplied: string) {
+  if (!Number.isSafeInteger(expires) || expires <= Math.floor(Date.now() / 1000) || expires > Math.floor(Date.now() / 1000) + 3600) return false;
+  const expected = Buffer.from(downloadSignature(assetId, expires));
+  const actual = Buffer.from(supplied);
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
+
+export function signedDownloadUrl(assetId: string, ttlSeconds = 15 * 60) {
+  const expires = Math.floor(Date.now() / 1000) + Math.min(Math.max(ttlSeconds, 60), 3600);
+  const url = `/api/assets/${encodeURIComponent(assetId)}/download`;
+  return `${url}?expires=${expires}&signature=${encodeURIComponent(downloadSignature(assetId, expires))}`;
 }

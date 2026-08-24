@@ -1,0 +1,69 @@
+import { createReadStream, createWriteStream } from "node:fs";
+import { stat } from "node:fs/promises";
+import { Readable, Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import { del, get, list, put } from "@vercel/blob";
+import { config } from "./config.js";
+
+export function normalizeStorageKey(value: string) {
+  const key = value.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  if (!key || key.split("/").some((segment) => !segment || segment === "." || segment === "..")) {
+    throw new Error("STORAGE_KEY_INVALID");
+  }
+  return key;
+}
+
+function pathname(key: string) {
+  return `${config.storagePrefix}/${normalizeStorageKey(key)}`;
+}
+
+async function findBlob(key: string) {
+  const target = pathname(key);
+  const result = await list({ prefix: target, limit: 2, token: config.blobToken });
+  return result.blobs.find((blob) => blob.pathname === target);
+}
+
+export async function downloadPrivateBlob(key: string, destination: string) {
+  const blob = await findBlob(key);
+  if (!blob) throw new Error("INPUT_NOT_FOUND");
+  if (blob.size > config.maxInputBytes) throw new Error("INPUT_TOO_LARGE");
+  const result = await get(blob.pathname, { access: "private", useCache: false, token: config.blobToken });
+  if (!result || result.statusCode !== 200) throw new Error("INPUT_DOWNLOAD_FAILED");
+  let bytes = 0;
+  const limiter = new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      bytes += chunk.length;
+      callback(bytes > config.maxInputBytes ? new Error("INPUT_TOO_LARGE") : null, chunk);
+    },
+  });
+  await pipeline(Readable.fromWeb(result.stream as never), limiter, createWriteStream(destination, { flags: "wx", mode: 0o600 }));
+  return bytes;
+}
+
+export async function uploadPrivateVideo(key: string, source: string) {
+  const info = await stat(source);
+  if (info.size <= 0 || info.size > config.maxOutputBytes) throw new Error("OUTPUT_SIZE_INVALID");
+  const body = Readable.toWeb(createReadStream(source)) as ReadableStream<Uint8Array>;
+  return put(pathname(key), body, {
+    access: "private",
+    addRandomSuffix: false,
+    allowOverwrite: true,
+    contentType: "video/mp4",
+    token: config.blobToken,
+  });
+}
+
+export async function checkStorage() {
+  await list({ prefix: `${config.storagePrefix}/`, limit: 1, token: config.blobToken });
+}
+
+export async function deleteSystemTestPrefix(runId: string) {
+  if (!/^[a-f0-9-]{36}$/i.test(runId)) throw new Error("SYSTEM_TEST_ID_INVALID");
+  const prefix = `${config.storagePrefix}/system-tests/${runId}/`;
+  let cursor: string | undefined;
+  do {
+    const result = await list({ prefix, cursor, limit: 1000, token: config.blobToken });
+    if (result.blobs.length) await del(result.blobs.map((blob) => blob.url), { token: config.blobToken });
+    cursor = result.hasMore ? result.cursor : undefined;
+  } while (cursor);
+}

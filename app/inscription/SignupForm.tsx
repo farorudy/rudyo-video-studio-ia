@@ -29,9 +29,13 @@ export default function SignupForm({ firstPurchaseBonus }: { firstPurchaseBonus:
   const [challengeRequested, setChallengeRequested] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const destination = () => {
+    const value = new URLSearchParams(window.location.search).get("returnTo");
+    return value?.startsWith("/") && !value.startsWith("//") ? value : "/dashboard";
+  };
 
   useEffect(() => {
-    if (status === "authenticated") router.replace("/dashboard");
+    if (status === "authenticated") router.replace(destination());
   }, [router, status]);
 
   async function requestCode(event: React.FormEvent<HTMLFormElement>) {
@@ -59,7 +63,7 @@ export default function SignupForm({ firstPurchaseBonus }: { firstPurchaseBonus:
         return;
       }
       if (body.challengeRequired) setChallengeRequested(true);
-      else router.replace("/dashboard");
+      else router.replace(destination());
     } catch {
       setError("Impossible d’envoyer le code. Réessayez dans quelques instants.");
     } finally {
@@ -89,7 +93,7 @@ export default function SignupForm({ firstPurchaseBonus }: { firstPurchaseBonus:
         return;
       }
       await refreshSession();
-      router.replace("/dashboard");
+      router.replace(destination());
     } catch {
       setError("Impossible de vérifier le code. Réessayez.");
     } finally {
@@ -118,14 +122,14 @@ export default function SignupForm({ firstPurchaseBonus }: { firstPurchaseBonus:
         {!challengeRequested ? (
           <>
             <label className="block text-sm font-semibold text-slate-200">
-              Nom complet
+              Prénom
               <input
                 value={name}
                 onChange={(event) => setName(event.target.value)}
                 autoComplete="name"
                 maxLength={80}
                 required
-                placeholder="Votre nom"
+                placeholder="Votre prénom"
                 className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3.5 text-white outline-none transition focus:border-cyan-300"
               />
             </label>

@@ -30,9 +30,13 @@ export default function LoginPage() {
   const [challengeRequested, setChallengeRequested] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const destination = () => {
+    const value = new URLSearchParams(window.location.search).get("returnTo");
+    return value?.startsWith("/") && !value.startsWith("//") ? value : "/dashboard";
+  };
 
   useEffect(() => {
-    if (status === "authenticated") router.replace("/dashboard");
+    if (status === "authenticated") router.replace(destination());
   }, [router, status]);
 
   async function requestCode(event: React.FormEvent<HTMLFormElement>) {
@@ -52,7 +56,7 @@ export default function LoginPage() {
         return;
       }
       if (body.challengeRequired) setChallengeRequested(true);
-      else router.replace("/dashboard");
+      else router.replace(destination());
     } catch {
       setError("Impossible d’envoyer le code. Réessayez.");
     } finally {
@@ -81,7 +85,7 @@ export default function LoginPage() {
         return;
       }
       await refreshSession();
-      router.replace("/dashboard");
+      router.replace(destination());
     } catch {
       setError("Impossible de vérifier le code. Réessayez.");
     } finally {

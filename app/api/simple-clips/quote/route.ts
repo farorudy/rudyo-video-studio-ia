@@ -1,0 +1,29 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getCurrentUser } from "@/lib/auth";
+import { probeAudioBuffer } from "@/lib/audio-probe";
+import { getMontageServiceStatus } from "@/lib/montage/worker-status";
+import { readFormDataWithLimit, sniffMime } from "@/lib/request-security";
+import { CLIP_OFFER, getClipAuthorization, getClipEconomics, quoteClip } from "@/lib/tiktok-offer";
+import { type AutomaticClipPlanCode } from "@/lib/clip-pricing";
+
+export const runtime = "nodejs";
+const MAX_AUDIO_BYTES = 100 * 1024 * 1024;
+
+export async function POST(request: NextRequest) {
+  try {
+    const form = await readFormDataWithLimit(request, MAX_AUDIO_BYTES + 1024 * 1024);
+    const audio = form.get("audio"), start = Number(form.get("audioStartSeconds") || 0), selectedPlan = String(form.get("plan") || "TIKTOK");
+    if (!(["TIKTOK", "LONG", "PREMIUM"] as string[]).includes(selectedPlan)) return NextResponse.json({ error: "Choisissez une formule valide." }, { status: 400 });
+    if (!(audio instanceof File) || audio.size <= 0 || audio.size > MAX_AUDIO_BYTES) return NextResponse.json({ error: "Choisissez une musique MP3, WAV ou M4A valide." }, { status: 400 });
+    const buffer = Buffer.from(await audio.arrayBuffer()), mime = sniffMime(buffer);
+    if (!mime || !["audio/mpeg", "audio/wav", "video/mp4"].includes(mime)) return NextResponse.json({ error: "Le contenu du fichier audio n’est pas autorisé." }, { status: 400 });
+    const extension = audio.name.split(".").pop() || "audio";
+    const [{ durationSeconds, codec, sampleRate, channels }, user, worker] = await Promise.all([probeAudioBuffer(buffer, extension), getCurrentUser(request), getMontageServiceStatus()]);
+    const plan = selectedPlan as AutomaticClipPlanCode;
+    const quote = quoteClip(durationSeconds, start, plan), economics = getClipEconomics(quote.billableDurationSeconds, plan), balance = user && !user.localSession ? user.creditsRemaining : null;
+    return NextResponse.json({ success: true, ...quote, ...getClipAuthorization(quote.totalCredits, balance, worker.available, economics.enabled, quote.supported, quote.fitsSelectedPlan), workerState: worker.state, workerWaking: worker.waking, balance, codec, sampleRate, channels, maxSupportedSeconds: CLIP_OFFER.maxDurationSeconds, economics: { enabled: economics.enabled, marginEur: economics.marginEur } }, { headers: { "Cache-Control": "private, no-store" } });
+  } catch (error) {
+    console.error("Automatic clip quote failed", error instanceof Error ? error.message : error);
+    return NextResponse.json({ error: "La durée de la musique n’a pas pu être vérifiée." }, { status: 400 });
+  }
+}

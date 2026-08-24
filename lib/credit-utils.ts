@@ -90,6 +90,10 @@ export async function reserveCredits(...args: any[]): Promise<CreditReservation>
   const { userId, action, amount, description, metadata, idempotencyKey } =
     parseReservationArgs(args);
   const finalAmount = amount ?? getActionCreditCost(action);
+  const billingMetadata = metadata && typeof metadata === "object" ? metadata as Record<string, unknown> : {};
+  if (billingMetadata.source === "SYSTEM_TEST" || billingMetadata.billingMode === "NON_BILLABLE" || billingMetadata.provider === "TEST_FIXTURE") {
+    throw new Error("NON_BILLABLE_GENERATION");
+  }
 
   if (!userId) {
     throw new Error("Utilisateur non authentifié.");
@@ -164,6 +168,11 @@ export async function confirmCreditUsage(...args: any[]) {
       status: "confirmed",
     };
   }
+  const nonBillableTask = await prisma.generationTask.findFirst({
+    where: { creditReservationId: String(reservationId), OR: [{ source: "SYSTEM_TEST" }, { billingMode: "NON_BILLABLE" }, { provider: "TEST_FIXTURE" }] },
+    select: { id: true },
+  });
+  if (nonBillableTask) throw new Error("NON_BILLABLE_GENERATION");
 
   const result = await prisma.$transaction(async (tx) => {
     const pending = await tx.creditTransaction.findUnique({
@@ -219,6 +228,11 @@ export async function refundCreditUsage(...args: any[]) {
       status: "refunded",
     };
   }
+  const nonBillableTask = await prisma.generationTask.findFirst({
+    where: { creditReservationId: String(reservationId), OR: [{ source: "SYSTEM_TEST" }, { billingMode: "NON_BILLABLE" }, { provider: "TEST_FIXTURE" }] },
+    select: { id: true },
+  });
+  if (nonBillableTask) throw new Error("NON_BILLABLE_GENERATION");
 
   const result = await prisma.$transaction(async (tx) => {
     const transaction = await tx.creditTransaction.findUnique({

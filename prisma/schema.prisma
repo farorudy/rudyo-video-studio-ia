@@ -53,9 +53,17 @@ enum CreditAction {
 enum VideoProjectStatus {
   DRAFT
   ACTIVE
+  GENERATING
   RENDERING
   COMPLETED
   ARCHIVED
+}
+
+enum ClipPlan {
+  TIKTOK
+  LONG
+  PREMIUM
+  CUSTOM
 }
 
 enum MediaAssetType {
@@ -107,6 +115,58 @@ enum FinalExportStatus {
   CANCELED
 }
 
+enum MontageJobStatus {
+  QUEUED
+  CLAIMED
+  DOWNLOADING
+  PREPARING
+  RENDERING
+  UPLOADING
+  SUCCEEDED
+  RETRYING
+  FAILED
+  REFUNDED
+}
+
+enum ClipWorkerJobStatus {
+  QUEUED
+  CLAIMED
+  PREPARING
+  RENDERING
+  UPLOADING
+  SUCCEEDED
+  RETRYING
+  FAILED
+  REFUNDED
+}
+
+enum WorkerHealthStatus {
+  ONLINE
+  DEGRADED
+  STOPPING
+}
+
+enum SystemTestStatus {
+  PREPARING
+  QUEUED
+  RUNNING
+  VERIFYING
+  SUCCEEDED
+  FAILED
+  CLEANED
+}
+
+enum SystemTestScenario {
+  SUCCESS
+  INVALID_VIDEO
+  MISSING_AUDIO
+  INTERRUPTED_WORKER
+  EXPIRED_LEASE
+  STORAGE_FAILURE
+  DOUBLE_CLAIM
+  IDEMPOTENCY_REPLAY
+}
+
 model User {
   id                   String              @id @default(cuid())
   email                String              @unique
@@ -137,6 +197,9 @@ model User {
   tokenUsages          TokenUsage[]
   consentRecords       ConsentRecord[]
   authSessions         AuthSession[]
+  montageJobs          MontageJob[]
+  systemTestRuns       SystemTestRun[]
+  clipWorkerJobs       ClipWorkerJob[]
 }
 
 model EmailVerificationToken {
@@ -156,15 +219,15 @@ model EmailVerificationToken {
 }
 
 model AuthSession {
-  id            String   @id @default(cuid())
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId        String
-  tokenHash     String   @unique
-  expiresAt     DateTime
-  revokedAt     DateTime?
-  lastSeenAt    DateTime @default(now())
-  rotatedAt     DateTime?
-  createdAt     DateTime @default(now())
+  id         String    @id @default(cuid())
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  lastSeenAt DateTime  @default(now())
+  rotatedAt  DateTime?
+  createdAt  DateTime  @default(now())
 
   @@index([userId, expiresAt])
 }
@@ -199,19 +262,19 @@ model ApiIdempotency {
 }
 
 model ContactRequest {
-  id          String   @id @default(cuid())
-  name        String
-  email       String
-  phone       String?
-  videoType   String
-  objective   String
-  deadline    String?
-  budget      String?
-  filesNote   String?
-  message     String?
-  ipHash      String
-  status      String   @default("RECEIVED")
-  createdAt   DateTime @default(now())
+  id        String   @id @default(cuid())
+  name      String
+  email     String
+  phone     String?
+  videoType String
+  objective String
+  deadline  String?
+  budget    String?
+  filesNote String?
+  message   String?
+  ipHash    String
+  status    String   @default("RECEIVED")
+  createdAt DateTime @default(now())
 
   @@index([createdAt])
   @@index([ipHash, createdAt])
@@ -232,34 +295,34 @@ model Transaction {
 }
 
 model CreditUsage {
-  id        String   @id @default(cuid())
-  user      User     @relation(fields: [userId], references: [id])
-  userId    String
-  amount    Int
-  reason    String
-  metadata  Json?
-  reservationId String? @unique
-  createdAt DateTime @default(now())
+  id            String   @id @default(cuid())
+  user          User     @relation(fields: [userId], references: [id])
+  userId        String
+  amount        Int
+  reason        String
+  metadata      Json?
+  reservationId String?  @unique
+  createdAt     DateTime @default(now())
 
   @@index([userId, createdAt])
 }
 
 model CreditTransaction {
-  id            String            @id @default(cuid())
-  user          User              @relation(fields: [userId], references: [id])
-  userId        String
-  type          TransactionType
-  action        CreditAction
-  creditsAmount Int
-  description   String
-  metadata      Json?
+  id             String            @id @default(cuid())
+  user           User              @relation(fields: [userId], references: [id])
+  userId         String
+  type           TransactionType
+  action         CreditAction
+  creditsAmount  Int
+  description    String
+  metadata       Json?
   idempotencyKey String?           @unique
   providerTaskId String?
-  status        TransactionStatus @default(PENDING)
-  confirmedAt   DateTime?
-  refundedAt    DateTime?
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
+  status         TransactionStatus @default(PENDING)
+  confirmedAt    DateTime?
+  refundedAt     DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
 }
 
 model AiUsageLog {
@@ -307,14 +370,14 @@ model StripeWebhookEvent {
 }
 
 model SubscriptionCreditGrant {
-  id                   String   @id @default(cuid())
-  invoiceId            String   @unique
+  id                   String    @id @default(cuid())
+  invoiceId            String    @unique
   stripeSubscriptionId String
   userId               String
   credits              Int
   periodStart          DateTime?
   periodEnd            DateTime?
-  createdAt            DateTime @default(now())
+  createdAt            DateTime  @default(now())
 
   @@index([userId, createdAt])
   @@index([stripeSubscriptionId, createdAt])
@@ -360,37 +423,53 @@ model AdminAuditLog {
 }
 
 model VideoProject {
-  id               String             @id @default(cuid())
-  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId           String
-  title            String
-  artistName       String
-  musicGenre       String?
-  bpm              Int?
-  durationSeconds  Int?
-  finalFormat      String             @default("16:9")
-  summary          String?
-  mood             String?
-  visualStyle      String?
-  locations        Json?
-  colors           Json?
-  cameraMovements  Json?
-  status           VideoProjectStatus @default(DRAFT)
-  demoMode         Boolean            @default(false)
-  maxBudgetUsd     Float?
-  maxBudgetCredits Int?
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
-  artistIdentity   ArtistIdentity?
-  mediaAssets      MediaAsset[]
-  scenes           StoryboardScene[]
-  generationTasks  GenerationTask[]
-  tokenUsages      TokenUsage[]
-  budgetLimit      BudgetLimit?
-  finalExports     FinalExport[]
-  consentRecords   ConsentRecord[]
+  id                       String             @id @default(cuid())
+  user                     User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId                   String
+  title                    String
+  artistName               String
+  musicGenre               String?
+  bpm                      Int?
+  durationSeconds          Int?
+  finalFormat              String             @default("16:9")
+  summary                  String?
+  mood                     String?
+  visualStyle              String?
+  locations                Json?
+  colors                   Json?
+  cameraMovements          Json?
+  status                   VideoProjectStatus @default(DRAFT)
+  clipPlan                 ClipPlan?
+  paymentCompletedAt       DateTime?
+  demoMode                 Boolean            @default(false)
+  source                   String             @default("USER")
+  billingMode              String             @default("BILLABLE")
+  maxBudgetUsd             Float?
+  maxBudgetCredits         Int?
+  creditReservationId      String?            @unique
+  audioStartSeconds        Float              @default(0)
+  billedDurationSeconds    Float?
+  clientRevenueEur         Float?
+  estimatedProviderCostEur Float?
+  actualProviderCostEur    Float?
+  estimatedMarginEur       Float?
+  actualMarginEur          Float?
+  createdAt                DateTime           @default(now())
+  updatedAt                DateTime           @updatedAt
+  artistIdentity           ArtistIdentity?
+  mediaAssets              MediaAsset[]
+  scenes                   StoryboardScene[]
+  generationTasks          GenerationTask[]
+  tokenUsages              TokenUsage[]
+  budgetLimit              BudgetLimit?
+  finalExports             FinalExport[]
+  consentRecords           ConsentRecord[]
+  montageJobs              MontageJob[]
+  systemTestRun            SystemTestRun?
+  clipWorkerJobs           ClipWorkerJob[]
 
   @@index([userId, updatedAt])
+  @@index([clipPlan, status])
 }
 
 model ArtistIdentity {
@@ -471,6 +550,8 @@ model GenerationTask {
   bytePlusTaskId         String?              @unique
   idempotencyKey         String               @unique
   provider               String               @default("byteplus")
+  source                 String               @default("USER")
+  billingMode            String               @default("BILLABLE")
   modelId                String
   status                 GenerationTaskStatus @default(PENDING)
   requestPayload         Json
@@ -552,20 +633,165 @@ model BudgetLimit {
 }
 
 model FinalExport {
-  id           String            @id @default(cuid())
-  project      VideoProject      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  projectId    String
-  status       FinalExportStatus @default(DRAFT)
-  format       String
-  resolution   String
-  storageKey   String?
-  url          String?
-  errorMessage String?
-  settings     Json?
-  createdAt    DateTime          @default(now())
-  updatedAt    DateTime          @updatedAt
+  id            String            @id @default(cuid())
+  project       VideoProject      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId     String
+  status        FinalExportStatus @default(DRAFT)
+  format        String
+  resolution    String
+  storageKey    String?
+  url           String?
+  errorMessage  String?
+  settings      Json?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  montageJob    MontageJob?
+  clipWorkerJob ClipWorkerJob?
 
   @@index([projectId, createdAt])
+}
+
+model MontageJob {
+  id             String            @id @default(cuid())
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId         String
+  project        VideoProject      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId      String
+  finalExport    FinalExport       @relation(fields: [finalExportId], references: [id], onDelete: Cascade)
+  finalExportId  String            @unique
+  generationId   String
+  status         MontageJobStatus  @default(QUEUED)
+  progress       Int               @default(0)
+  inputManifest  Json
+  outputPath     String
+  errorCode      String?
+  errorMessage   String?
+  attemptCount   Int               @default(0)
+  maxAttempts    Int               @default(3)
+  idempotencyKey String            @unique
+  lockedBy       String?
+  lockedAt       DateTime?
+  leaseExpiresAt DateTime?
+  availableAt    DateTime          @default(now())
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  events         MontageJobEvent[]
+
+  @@index([status, availableAt, createdAt])
+  @@index([projectId, status])
+  @@index([leaseExpiresAt])
+}
+
+model MontageJobEvent {
+  id        String           @id @default(cuid())
+  job       MontageJob       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  jobId     String
+  status    MontageJobStatus
+  progress  Int
+  message   String
+  createdAt DateTime         @default(now())
+
+  @@index([jobId, createdAt])
+}
+
+model ClipWorkerJob {
+  id             String               @id
+  user           User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId         String
+  project        VideoProject         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId      String
+  finalExport    FinalExport          @relation(fields: [finalExportId], references: [id], onDelete: Cascade)
+  finalExportId  String               @unique
+  status         ClipWorkerJobStatus  @default(QUEUED)
+  progress       Int                  @default(0)
+  inputManifest  Json
+  outputPath     String
+  attemptCount   Int                  @default(0)
+  maxAttempts    Int                  @default(3)
+  idempotencyKey String               @unique
+  lockedBy       String?
+  lockedAt       DateTime?
+  leaseExpiresAt DateTime?
+  availableAt    DateTime             @default(now())
+  startedAt      DateTime?
+  completedAt    DateTime?
+  errorCode      String?
+  errorMessage   String?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  events         ClipWorkerJobEvent[]
+
+  @@index([status, availableAt, createdAt])
+  @@index([projectId, status])
+  @@index([leaseExpiresAt])
+}
+
+model ClipWorkerJobEvent {
+  id        String              @id @default(cuid())
+  job       ClipWorkerJob       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  jobId     String
+  status    ClipWorkerJobStatus
+  progress  Int
+  message   String
+  createdAt DateTime            @default(now())
+
+  @@index([jobId, createdAt])
+}
+
+model WorkerHeartbeat {
+  id                 String             @id
+  version            String
+  status             WorkerHealthStatus @default(ONLINE)
+  lastSeenAt         DateTime           @default(now())
+  currentJobId       String?
+  ffmpegAvailable    Boolean            @default(false)
+  databaseAvailable  Boolean            @default(false)
+  storageAvailable   Boolean            @default(false)
+  tempAvailableBytes BigInt?
+  errorCode          String?
+  startedAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  @@index([lastSeenAt])
+  @@index([status, lastSeenAt])
+}
+
+model SystemTestRun {
+  id                   String             @id @default(cuid())
+  adminSubject         String
+  user                 User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId               String?
+  project              VideoProject?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  projectId            String?            @unique
+  montageJobId         String?            @unique
+  finalExportId        String?            @unique
+  source               String             @default("SYSTEM_TEST")
+  billingMode          String             @default("NON_BILLABLE")
+  provider             String             @default("TEST_FIXTURE")
+  scenario             SystemTestScenario @default(SUCCESS)
+  status               SystemTestStatus   @default(PREPARING)
+  steps                Json               @default("[]")
+  diagnostics          Json?
+  balanceBefore        Int
+  balanceAfter         Int?
+  billingVerified      Boolean            @default(false)
+  bytePlusCallVerified Boolean            @default(false)
+  outputPath           String?
+  downloadTokenHash    String?
+  downloadExpiresAt    DateTime?
+  expiresAt            DateTime
+  completedAt          DateTime?
+  cleanedAt            DateTime?
+  errorCode            String?
+  errorMessage         String?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  @@index([status, createdAt])
+  @@index([expiresAt, cleanedAt])
+  @@index([adminSubject, createdAt])
 }
 
 model ConsentRecord {

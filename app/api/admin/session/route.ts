@@ -4,6 +4,7 @@ import {
   ADMIN_SESSION_MAX_AGE_SECONDS,
   createAdminSessionToken,
   getAdminFromRequest,
+  getAdminCsrfToken,
   isSameOriginRequest,
   verifyAdminCredentials,
 } from "@/lib/admin-auth";
@@ -36,6 +37,7 @@ export async function GET(request: NextRequest) {
     success: true,
     authenticated: true,
     admin: { email: admin.email },
+    csrfToken: getAdminCsrfToken(request),
   });
 }
 

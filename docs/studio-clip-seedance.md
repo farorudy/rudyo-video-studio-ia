@@ -58,11 +58,10 @@ officielle ne le fournit.
 
 ## Rendu final
 
-Les rendus longs ne sont pas exécutés dans une requête Vercel. Configurez un
-worker FFmpeg HTTPS avec `FINAL_RENDER_WORKER_URL` et
-`FINAL_RENDER_WORKER_TOKEN`. L’API `/api/seedance/projects/[id]/exports` place
-alors la demande dans la file du worker. Sans worker, elle refuse clairement le
-rendu au lieu de bloquer une fonction web.
+Les rendus longs ne sont pas exécutés dans une requête Vercel. L’application
+place atomiquement `FinalExport` et `MontageJob` dans PostgreSQL. Le service
+Docker décrit dans [`worker/README.md`](../worker/README.md) consomme cette file,
+télécharge les médias Blob privés et publie le MP4 final privé.
 
 ## Déploiement
 

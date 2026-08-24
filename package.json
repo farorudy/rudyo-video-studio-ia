@@ -19,7 +19,7 @@
     "montage:advanced": "node scripts/montage-advanced.js",
     "montage:smart": "node scripts/montage-smart.js",
     "test:accented-slide": "tsx scripts/test-accented-slide.ts",
-    "test:seedance": "tsx --test tests/seedance-*.test.ts",
+    "test:seedance": "tsx --test lib/clip-pricing.test.ts tests/seedance-*.test.ts tests/tiktok-*.test.ts tests/clip-*.test.ts",
     "test:security": "tsx --test tests/security-*.test.ts",
     "test": "npm run test:security && npm run test:seedance",
     "test:e2e": "playwright test"

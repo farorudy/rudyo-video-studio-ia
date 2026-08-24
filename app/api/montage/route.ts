@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentUser } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { enqueueMontageJob } from "@/lib/montage/queue";
 import {
   beginIdempotentRequest,
   enforceApiRateLimit,
   finishIdempotentRequest,
   readJsonWithLimit,
   requireIdempotencyKey,
-  withTimeout,
 } from "@/lib/request-security";
 
 const schema = z.object({
@@ -33,34 +32,18 @@ export async function POST(request: NextRequest) {
     }
     const parsed = schema.safeParse(await readJsonWithLimit<unknown>(request, 16 * 1024));
     if (!parsed.success) throw new Error("Paramètres de montage invalides.");
-    const project = await prisma.videoProject.findFirst({
-      where: { id: parsed.data.projectId, userId: user.id },
-      include: { scenes: { include: { variants: { where: { selected: true }, take: 1 } }, orderBy: { order: "asc" } } },
+    const job = await enqueueMontageJob({
+      projectId: parsed.data.projectId,
+      userId: user.id,
+      resolution: parsed.data.resolution,
+      format: parsed.data.format === "vertical" ? "9:16" : parsed.data.format === "square" ? "1:1" : "16:9",
+      transition: parsed.data.transition === "cut" ? "cut" : "crossfade",
     });
-    if (!project) return NextResponse.json({ error: "Projet introuvable." }, { status: 404 });
-    if (project.scenes.length === 0 || project.scenes.some((scene) => scene.variants.length !== 1)) {
-      throw new Error("Chaque scène doit posséder une variante sélectionnée.");
-    }
-    const workerUrl = process.env.FINAL_RENDER_WORKER_URL;
-    const workerToken = process.env.FINAL_RENDER_WORKER_TOKEN;
-    if (!workerUrl || !workerToken) return NextResponse.json({ error: "Worker de montage non configuré." }, { status: 503 });
-    const url = new URL(workerUrl);
-    if (url.protocol !== "https:") throw new Error("URL du worker invalide.");
-    const exportRecord = await prisma.finalExport.create({
-      data: { projectId: project.id, status: "QUEUED", format: parsed.data.format, resolution: parsed.data.resolution, settings: { transition: parsed.data.transition, idempotencyKey: key } },
-    });
-    const workerResponse = await withTimeout(fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${workerToken}` },
-      body: JSON.stringify({ exportId: exportRecord.id, projectId: project.id, userId: user.id }),
-      cache: "no-store",
-    }), 10_000);
-    if (!workerResponse.ok) throw new Error("Le worker de montage a refusé la tâche.");
-    const response = { success: true, status: "QUEUED", exportId: exportRecord.id };
+    const response = { success: true, status: job.status, exportId: job.finalExportId, jobId: job.id };
     await finishIdempotentRequest(idempotency.record.id, 202, response);
     return NextResponse.json(response, { status: 202 });
   } catch (error) {
-    const message = error instanceof Error && (error.message.includes("scène") || error.message.includes("invalides"))
+    const message = error instanceof Error && (error.message.includes("scène") || error.message.includes("invalides") || error.message.includes("introuvable"))
       ? error.message : "Impossible de préparer le montage.";
     if (idempotencyId) await finishIdempotentRequest(idempotencyId, 400, { error: message }).catch(() => undefined);
     return NextResponse.json({ error: message }, { status: 400 });

@@ -11,6 +11,7 @@ import {
   isSameOriginRequest,
 } from "@/lib/admin-auth";
 import { prisma } from "@/lib/prisma";
+import { CLIP_PLANS, getClipEconomics } from "@/lib/tiktok-offer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,7 +32,7 @@ export async function GET(request: NextRequest) {
     return unauthorized();
   }
 
-  const [users, usersCount, credits, aiUsageCount, recentAudit] =
+  const [users, usersCount, credits, aiUsageCount, recentAudit, clipActuals] =
     await Promise.all([
       prisma.user.findMany({
         orderBy: { createdAt: "desc" },
@@ -68,6 +69,12 @@ export async function GET(request: NextRequest) {
           createdAt: true,
         },
       }),
+      prisma.videoProject.groupBy({
+        by: ["clipPlan"],
+        where: { clipPlan: { not: null }, actualProviderCostEur: { not: null } },
+        _sum: { actualProviderCostEur: true, actualMarginEur: true },
+        _count: { _all: true },
+      }),
     ]);
 
   return NextResponse.json({
@@ -81,6 +88,10 @@ export async function GET(request: NextRequest) {
     },
     users,
     recentAudit,
+    clipOffers: Object.values(CLIP_PLANS).map((offer) => {
+      const actual = clipActuals.find((row) => row.clipPlan === offer.code);
+      return { ...offer, economics: { ...getClipEconomics(offer.maxDurationSeconds), actualProviderCostEur: actual?._sum.actualProviderCostEur ?? 0, actualMarginEur: actual?._sum.actualMarginEur ?? 0, completedProductions: actual?._count._all ?? 0 } };
+    }),
   });
 }
 

@@ -1,15 +1,16 @@
 import { expect, test } from "@playwright/test";
 
+// 180 s facturées à la durée réelle : 3 000 crédits, soit 30,00 €.
 const quote = {
-  success: true, totalCredits: 3_500, requiredCredits: 3_500, priceEur: 35,
+  success: true, totalCredits: 3_000, requiredCredits: 3_000, priceEur: 30,
   audioDurationSeconds: 180, normalizedSeconds: 180, billableDurationSeconds: 180,
   plan: "TIKTOK", planName: "Formule Clip TikTok", supported: true,
   fitsSelectedPlan: true, recommendedPlan: null, maxPriceEur: 35,
-  balance: 5_000, balanceAfter: 1_500, missingCredits: 0, missingPriceEur: 0,
+  balance: 5_000, balanceAfter: 2_000, missingCredits: 0, missingPriceEur: 0,
   allowed: true, workerAvailable: true, refusalCode: null,
 };
 
-test("le parcours commence par le choix explicite d’un pack fixe", async ({ page }) => {
+test("les formules sont présentées comme des plafonds, jamais comme des prix fixes", async ({ page }) => {
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
   await page.route("**/api/simple-clips/quote", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(quote) }));
@@ -20,13 +21,14 @@ test("le parcours commence par le choix explicite d’un pack fixe", async ({ pa
 
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Choisissez votre formule" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Clip 3:30" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Clip 5:00" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Clip 7:00" })).toBeVisible();
-  await expect(page.getByText("3 500 crédits", { exact: true })).toBeVisible();
-  await expect(page.getByText("5 000 crédits", { exact: true })).toBeVisible();
-  await expect(page.getByText("7 000 crédits", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Choisir le clip 5 minutes — 50 €" }).click();
+  await expect(page.getByRole("heading", { name: "Clip jusqu’à 3 min 30" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Clip jusqu’à 5 minutes" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Clip jusqu’à 7 minutes" })).toBeVisible();
+  await expect(page.getByText("maximum 35 €", { exact: true })).toBeVisible();
+  await expect(page.getByText("maximum 50 €", { exact: true })).toBeVisible();
+  await expect(page.getByText("maximum 70 €", { exact: true })).toBeVisible();
+  await expect(page.getByText("Prix calculé automatiquement selon la durée réelle de votre musique.").first()).toBeVisible();
+  await page.getByRole("button", { name: "Choisir le clip jusqu’à 5 minutes" }).click();
   await expect(page.getByRole("button", { name: "Formule sélectionnée" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Ma photo" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Ma musique" })).toBeVisible();

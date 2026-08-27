@@ -5,6 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { ChangeEvent, DragEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "@/app/components/SessionProvider";
+import { buildClipCallToAction, CLIP_PLAN_CATALOG, formatCreditAmount, formatEuros } from "@/lib/clip-pricing";
 
 type PlanCode = "TIKTOK" | "LONG" | "PREMIUM";
 type Quote = { totalCredits: number; requiredCredits: number; priceEur: number; audioDurationSeconds: number; normalizedSeconds: number; billableDurationSeconds: number; plan: PlanCode | "CUSTOM"; planName: string; supported: boolean; fitsSelectedPlan: boolean; recommendedPlan: PlanCode | null; maxPriceEur: number | null; balance: number | null; balanceAfter: number | null; missingCredits: number; missingPriceEur: number; allowed: boolean; workerAvailable: boolean; workerState?: string; workerWaking?: boolean; refusalCode: string | null };
@@ -13,10 +14,11 @@ type StatusPayload = Partial<Quote> & { state: "draft" | "processing" | "complet
 const suggestions = ["Romantique", "Cinématographique", "Tropical", "Concert", "Gospel", "Zouk", "Urbain", "Élégant"];
 const example = "Une chanteuse arrive dans un club élégant en voiture américaine blanche. Elle traverse une foule d’admirateurs, monte sur scène et chante devant le public. Style cinématographique, romantique et international.";
 const ACTIVE_PROJECT_KEY = "rudyo-active-simple-clip";
+const PRICING_NOTICE = "Prix calculé automatiquement selon la durée réelle de votre musique.";
 const planOptions = [
-  { code: "TIKTOK" as const, title: "Clip 3:30", duration: "3 minutes 30", credits: 3_500, price: 35, description: "Idéal pour TikTok, Instagram, Facebook et YouTube.", button: "Choisir le clip 3 min 30 — 35 €" },
-  { code: "LONG" as const, title: "Clip 5:00", duration: "5 minutes", credits: 5_000, price: 50, description: "Idéal pour une chanson complète.", button: "Choisir le clip 5 minutes — 50 €" },
-  { code: "PREMIUM" as const, title: "Clip 7:00", duration: "7 minutes", credits: 7_000, price: 70, description: "Idéal pour un clip long ou une version étendue.", button: "Choisir le clip 7 minutes — 70 €" },
+  { code: "TIKTOK" as const, title: "Clip jusqu’à 3 min 30", duration: "3 minutes 30", maxCredits: CLIP_PLAN_CATALOG.TIKTOK.maxCredits, maxPrice: CLIP_PLAN_CATALOG.TIKTOK.maxPriceInEuros, description: "Idéal pour TikTok, Instagram, Facebook et YouTube.", button: "Choisir le clip jusqu’à 3 min 30" },
+  { code: "LONG" as const, title: "Clip jusqu’à 5 minutes", duration: "5 minutes", maxCredits: CLIP_PLAN_CATALOG.LONG.maxCredits, maxPrice: CLIP_PLAN_CATALOG.LONG.maxPriceInEuros, description: "Idéal pour une chanson complète.", button: "Choisir le clip jusqu’à 5 minutes" },
+  { code: "PREMIUM" as const, title: "Clip jusqu’à 7 minutes", duration: "7 minutes", maxCredits: CLIP_PLAN_CATALOG.PREMIUM.maxCredits, maxPrice: CLIP_PLAN_CATALOG.PREMIUM.maxPriceInEuros, description: "Idéal pour un clip long ou une version étendue.", button: "Choisir le clip jusqu’à 7 minutes" },
 ];
 
 function putDraft(photo: File | null, audio: File | null, idea: string, plan: PlanCode, style: string, audioStartSeconds: number) {
@@ -88,9 +90,15 @@ export default function SimpleClipCreator() {
     try {
       const form = new FormData(); form.set("audio", audio); form.set("audioStartSeconds", String(audioStartSeconds)); form.set("plan", selectedPlan);
       const response = await fetch("/api/simple-clips/quote", { method: "POST", body: form, cache: "no-store" });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error);
+      const body = await response.json() as Quote;
+      if (!response.ok) throw new Error((body as unknown as { error?: string }).error);
       setQuote(body);
+      // La formule adaptée est appliquée d’office : l’utilisateur ne choisit jamais
+      // une formule trop courte, et sa musique n’est donc jamais coupée.
+      if (body.supported && body.recommendedPlan && body.recommendedPlan !== selectedPlan) {
+        setSelectedPlan(body.recommendedPlan);
+        setError("");
+      }
     } catch { setQuote(null); }
   }, [audio, audioStartSeconds, selectedPlan]);
   useEffect(() => {
@@ -201,7 +209,8 @@ export default function SimpleClipCreator() {
     if (sessionStatus !== "authenticated") return setAuthPrompt(true);
     if (!quote) return setError("Le prix n’est pas disponible. Réessayez dans un instant.");
     if (!quote.supported) return setError("Votre musique dépasse la durée maximale automatique de 7 minutes.");
-    if (!quote.fitsSelectedPlan) return setError("Choisissez une formule assez longue pour conserver toute votre musique.");
+    // L’effet d’auto-sélection réaligne la formule ; on attend simplement le devis à jour.
+    if (!quote.fitsSelectedPlan) return setError("La formule adaptée à votre musique est en cours de sélection. Réessayez dans un instant.");
     if (!quote.workerAvailable) return setError("Le service de création est momentanément indisponible. Aucun crédit ne sera débité.");
     if (quote.refusalCode === "INSUFFICIENT_CREDITS") { void startMissingCreditsCheckout(); return; }
     if (!quote.allowed) return setError("Cette formule est temporairement indisponible.");
@@ -267,24 +276,50 @@ export default function SimpleClipCreator() {
       setCheckoutLoading(false);
     }
   }
+  /**
+   * Relance la tâche existante sans nouveau débit. La photo, la musique et
+   * l’idée restent en mémoire et dans le brouillon IndexedDB.
+   */
+  async function retryGeneration() {
+    if (!projectId || actionInFlight.current) return;
+    actionInFlight.current = true;
+    setError("");
+    try {
+      const response = await fetch(`/api/simple-clips/${encodeURIComponent(projectId)}/retry`, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() } });
+      const body = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(body.error || "La relance n’a pas pu démarrer.");
+      window.localStorage.setItem(ACTIVE_PROJECT_KEY, projectId);
+      setProgress(5);
+      setProgressMessage("Nouvelle tentative de création");
+      setClipState("processing");
+    } catch (retryError) {
+      setError(retryError instanceof Error ? retryError.message : "La relance n’a pas pu démarrer.");
+    } finally {
+      actionInFlight.current = false;
+    }
+  }
   function reset() { window.localStorage.removeItem(ACTIVE_PROJECT_KEY); setClipState("form"); setProgress(0); setProjectId(null); setVideoUrl(""); setResultDetails(null); setError(""); }
-  const selectedOption = planOptions.find((option) => option.code === selectedPlan)!;
   const formComplete = Boolean(photo && audio && idea.trim().length >= 10);
+  // Un seul module tarifaire décide du libellé, du montant et du surcrédit Stripe.
+  // Visiteur non connecté : on annonce le prix réel, la connexion est demandée ensuite.
+  const callToAction = quote?.supported && quote.requiredCredits
+    ? buildClipCallToAction({ requiredCredits: quote.requiredCredits, balanceCredits: quote.balance ?? quote.requiredCredits })
+    : null;
 
   if (clipState === "processing") return <ProgressScreen progress={progress} message={progressMessage} />;
   if (clipState === "draft") return <DraftResumeScreen quote={resumeQuote} paymentReturn={paymentReturn} checkoutLoading={checkoutLoading} error={error} onConfirm={() => void confirmResumedDraft()} onBuy={() => void checkoutSavedDraft()} />;
   if (clipState === "completed") return <ResultScreen videoUrl={videoUrl} details={resultDetails} onReset={() => { setPhoto(null); setAudio(null); setIdea(""); reset(); }} onEdit={reset} />;
-  if (clipState === "failed") return <ErrorScreen message={error} onRetry={projectId ? () => setClipState("processing") : reset} onEdit={reset} />;
+  if (clipState === "failed") return <ErrorScreen message={error} canRetry={Boolean(projectId)} onRetry={projectId ? () => void retryGeneration() : reset} onEdit={reset} />;
 
   return <section className="mx-auto max-w-5xl px-4 pb-12 pt-28 sm:px-6">
-    <div className="text-center"><span className="inline-flex items-center gap-2 rounded-full border border-cyan-400/30 bg-cyan-400/10 px-4 py-2 text-sm font-bold text-cyan-200"><Sparkles size={16} /> Trois durées, trois prix fixes</span><h1 className="mt-6 text-4xl font-black tracking-tight sm:text-6xl">Créez votre clip jusqu’à 7 minutes</h1><p className="mx-auto mt-5 max-w-2xl text-lg leading-8 text-slate-300">Choisissez votre formule, puis ajoutez votre photo, votre musique et votre idée.</p></div>
+    <div className="text-center"><span className="inline-flex items-center gap-2 rounded-full border border-cyan-400/30 bg-cyan-400/10 px-4 py-2 text-sm font-bold text-cyan-200"><Sparkles size={16} /> Trois durées, un prix à la minute</span><h1 className="mt-6 text-4xl font-black tracking-tight sm:text-6xl">Créez votre clip jusqu’à 7 minutes</h1><p className="mx-auto mt-5 max-w-2xl text-lg leading-8 text-slate-300">Ajoutez votre photo, votre musique et votre idée : la formule est choisie pour vous.</p></div>
     <section aria-labelledby="clip-plan-heading" className="mt-12">
-      <div className="text-center"><p className="text-sm font-black uppercase tracking-[0.2em] text-cyan-300">Étape 1</p><h2 id="clip-plan-heading" className="mt-3 text-3xl font-black">Choisissez votre formule</h2></div>
+      <div className="text-center"><p className="text-sm font-black uppercase tracking-[0.2em] text-cyan-300">Étape 1</p><h2 id="clip-plan-heading" className="mt-3 text-3xl font-black">Choisissez votre formule</h2><p className="mx-auto mt-3 max-w-xl text-slate-300">{PRICING_NOTICE}</p></div>
       <div className="mt-7 grid gap-5 md:grid-cols-3">{planOptions.map((option) => {
         const selected = selectedPlan === option.code;
         return <article key={option.code} className={`rounded-3xl border p-6 transition ${selected ? "border-cyan-300 bg-cyan-950/30 shadow-[0_0_30px_rgba(34,211,238,0.12)]" : "border-slate-800 bg-slate-950"}`}>
           {selected ? <p className="mb-3 text-sm font-black text-cyan-200"><Check className="mr-1 inline" size={16} /> Formule sélectionnée</p> : null}
-          <h3 className="text-2xl font-black">{option.title}</h3><p className="mt-3 font-bold text-cyan-100">Jusqu’à {option.duration}</p><p className="mt-5 text-3xl font-black">{option.credits.toLocaleString("fr-FR")} crédits</p><p className="mt-1 text-lg text-slate-300">{option.price} €</p><p className="mt-4 min-h-12 text-sm leading-6 text-slate-400">{option.description}</p>
+          <h3 className="text-2xl font-black">{option.title}</h3><p className="mt-3 font-bold text-cyan-100">Jusqu’à {option.duration}</p><p className="mt-5 text-3xl font-black">maximum {option.maxPrice} €</p><p className="mt-1 text-lg text-slate-300">soit au plus {formatCreditAmount(option.maxCredits)} crédits</p><p className="mt-3 text-sm text-cyan-200/80">{PRICING_NOTICE}</p><p className="mt-4 min-h-12 text-sm leading-6 text-slate-400">{option.description}</p>
           <button type="button" onClick={() => { setSelectedPlan(option.code); setError(""); }} aria-pressed={selected} className={`mt-6 w-full rounded-xl px-4 py-3 text-sm font-black ${selected ? "bg-cyan-300 text-slate-950" : "border border-slate-700 text-white hover:border-cyan-300"}`}>{selected ? "Formule sélectionnée" : option.button}</button>
         </article>;
       })}</div>
@@ -301,9 +336,16 @@ export default function SimpleClipCreator() {
       </UploadCard>
       <div className="rounded-3xl border border-slate-800 bg-slate-900/70 p-5 sm:p-7"><Heading number="3" title="Mon idée de clip" subtitle="Une phrase suffit" /><textarea value={idea} onChange={(event) => setIdea(event.target.value)} placeholder={example} maxLength={3000} rows={6} className="mt-5 w-full resize-y rounded-2xl border border-slate-700 bg-slate-950 p-4 leading-7 outline-none placeholder:text-slate-600 focus:border-cyan-300" /><div className="mt-4 flex flex-wrap gap-2">{suggestions.map((item) => <button key={item} type="button" onClick={() => setIdea((value) => `${value.trim()}${value.trim() ? " " : ""}Style ${item.toLowerCase()}.`)} className="rounded-full border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:border-cyan-400">+ {item}</button>)}</div></div>
       <details className="group rounded-2xl border border-slate-800 bg-slate-950 p-5"><summary className="flex cursor-pointer list-none items-center justify-between font-bold text-slate-300">Options avancées <ChevronDown className="transition group-open:rotate-180" size={18} /></summary><div className="mt-5 grid gap-5 sm:grid-cols-2"><label className="text-sm font-bold text-slate-300">Style visuel<input value={style} onChange={(event) => setStyle(event.target.value)} placeholder="Ex. lumière dorée" maxLength={120} className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-900 p-3 font-normal text-white" /></label><label className="text-sm font-bold text-slate-300">Début de l’extrait (secondes)<input type="number" min="0" max={Math.max(0, Math.floor(audioDuration - 1))} value={audioStartSeconds} onChange={(event) => setAudioStartSeconds(Math.max(0, Number(event.target.value) || 0))} className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-900 p-3 font-normal text-white" /></label></div></details>
-      {quote ? <div className="rounded-2xl border border-cyan-400/30 bg-cyan-950/20 p-4 text-center">{quote.supported ? <><p className="font-black text-cyan-100">{quote.planName} — {quote.totalCredits.toLocaleString("fr-FR")} crédits, soit {quote.priceEur.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} €</p><p className="mt-2 text-sm text-slate-300">Durée détectée : {Math.floor(quote.normalizedSeconds / 60)} min {String(quote.normalizedSeconds % 60).padStart(2, "0")} s · Solde actuel : {quote.balance ?? "—"} · Crédits manquants : {quote.missingCredits.toLocaleString("fr-FR")} · Solde après génération : {quote.balanceAfter ?? "—"}</p>{!quote.fitsSelectedPlan && quote.recommendedPlan ? <div role="alert" className="mt-4 rounded-xl border border-amber-400/40 bg-amber-950/30 p-4 text-amber-100"><p>Votre musique dure {Math.floor(quote.normalizedSeconds / 60)} minutes{quote.normalizedSeconds % 60 ? ` ${quote.normalizedSeconds % 60} secondes` : ""}. Choisissez une formule plus longue pour créer le clip complet.</p><button type="button" onClick={() => setSelectedPlan(quote.recommendedPlan!)} className="mt-3 rounded-lg bg-amber-300 px-4 py-2 font-black text-slate-950">{quote.recommendedPlan === "LONG" ? "Passer à la formule 5 minutes — 50 €" : "Passer à la formule 7 minutes — 70 €"}</button></div> : null}{quote.missingCredits > 0 && quote.fitsSelectedPlan ? <p className="mt-3 font-bold text-amber-200">Il vous manque {quote.missingCredits.toLocaleString("fr-FR")} crédits, soit {quote.missingPriceEur.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} €.</p> : null}</> : <p role="alert" className="font-black text-amber-100">Votre musique dépasse la durée maximale automatique de 7 minutes. La création automatique est indisponible.</p>}</div> : null}
+      {quote ? <div data-testid="clip-quote" className="rounded-2xl border border-cyan-400/30 bg-cyan-950/20 p-4 text-center">{quote.supported ? <>
+        <p className="font-black text-cyan-100">Durée détectée : {Math.floor(quote.normalizedSeconds / 60)} min {String(quote.normalizedSeconds % 60).padStart(2, "0")} s</p>
+        <p className="mt-1 text-cyan-100">{quote.planName} · {formatCreditAmount(quote.totalCredits)} crédits · {formatEuros(quote.priceEur)}</p>
+        <p className="mt-2 text-sm text-slate-300">Solde actuel : {quote.balance === null ? "—" : formatCreditAmount(quote.balance)} crédits · Crédits manquants : {formatCreditAmount(quote.missingCredits)} · Solde après génération : {quote.balanceAfter === null ? "—" : formatCreditAmount(quote.balanceAfter)}</p>
+        <p className="mt-2 text-xs text-cyan-200/70">{PRICING_NOTICE}</p>
+        {!quote.fitsSelectedPlan && quote.recommendedPlan ? <p role="status" className="mt-3 rounded-xl border border-cyan-400/40 bg-cyan-950/40 p-3 text-sm text-cyan-100">Votre musique dure {quote.normalizedSeconds} secondes : la formule «&nbsp;{quote.planName}&nbsp;» a été sélectionnée automatiquement pour conserver l’intégralité du morceau.</p> : null}
+        {quote.missingCredits > 0 ? <p className="mt-3 font-bold text-amber-200">Il vous manque {formatCreditAmount(quote.missingCredits)} crédits, soit {formatEuros(quote.missingPriceEur)}.{callToAction && callToAction.overcreditCredits > 0 ? ` Le minimum de paiement impose l’achat de ${formatCreditAmount(callToAction.purchasedCredits)} crédits, dont ${formatCreditAmount(callToAction.overcreditCredits)} crédits conservés sur votre solde.` : ""}</p> : null}
+      </> : <p role="alert" className="font-black text-amber-100">Votre musique dure {quote.normalizedSeconds} secondes et dépasse la durée maximale automatique de 7 minutes (420 secondes). Aucun paiement n’est possible pour cette durée.</p>}</div> : null}
       {error ? <p role="alert" className="rounded-2xl border border-rose-500/40 bg-rose-950/30 p-4 text-sm text-rose-100">{error}</p> : null}
-      <button type="button" onClick={prepareGeneration} disabled={!formComplete || !quote?.supported || !quote.fitsSelectedPlan || checkoutLoading || (!quote.allowed && quote.refusalCode !== "INSUFFICIENT_CREDITS")} className="flex w-full items-center justify-center gap-3 rounded-2xl bg-cyan-300 px-6 py-5 text-lg font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"><WandSparkles /> {checkoutLoading ? "Conservation du projet…" : quote?.refusalCode === "INSUFFICIENT_CREDITS" ? `Payer ${quote.missingPriceEur.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} € et créer mon clip` : `Créer mon clip — ${selectedOption.credits.toLocaleString("fr-FR")} crédits / ${selectedOption.price} €`}</button>
+      <button data-testid="clip-primary-action" type="button" onClick={prepareGeneration} disabled={!formComplete || !quote?.supported || checkoutLoading || (!quote.allowed && quote.refusalCode !== "INSUFFICIENT_CREDITS")} className="flex w-full items-center justify-center gap-3 rounded-2xl bg-cyan-300 px-6 py-5 text-lg font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"><WandSparkles /> {checkoutLoading ? "Conservation du projet…" : callToAction ? callToAction.label : "Ajoutez votre musique pour connaître le prix"}</button>
       {quote?.workerState === "STARTING" ? <p className="rounded-2xl border border-cyan-400/30 bg-cyan-950/20 p-4 text-center text-cyan-100">Démarrage du service de création…</p> : null}
       {quote?.refusalCode === "WORKER_UNAVAILABLE" ? <div className="rounded-2xl border border-amber-400/30 bg-amber-950/20 p-4 text-center text-amber-200"><p>La création est temporairement indisponible. Aucun crédit ne sera débité.</p><button type="button" onClick={() => void loadQuote()} className="mt-3 rounded-xl border border-amber-300/50 px-4 py-2 font-black">Réessayer</button></div> : null}
       <p className="text-center text-xs text-slate-500">En lançant la création, vous confirmez disposer des droits sur la photo et la musique importées.</p>
@@ -342,4 +384,4 @@ function ResultScreen({ videoUrl, details, onReset, onEdit }: { videoUrl: string
   const date = details?.createdAt ? new Intl.DateTimeFormat("fr-FR", { dateStyle: "long" }).format(new Date(details.createdAt)) : "";
   return <section className="mx-auto max-w-4xl px-5 pb-16 pt-28 text-center"><div className="rounded-[2rem] border border-emerald-400/30 bg-slate-950/90 p-6 sm:p-10"><h1 className="text-4xl font-black">Votre clip est prêt !</h1><h2 className="mt-4 text-xl font-bold text-cyan-100">{details?.title || "Mon clip Rudyo"}</h2><p className="mt-2 text-sm text-slate-400">{duration}{date ? ` · Créé le ${date}` : ""}</p><video controls playsInline src={videoUrl} className="mt-8 aspect-video w-full rounded-2xl bg-black" /><a href={details?.downloadUrl || videoUrl} download className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-cyan-300 px-6 py-4 font-black text-slate-950"><Download /> Télécharger mon clip sur mon ordinateur</a><div className="mt-4 grid gap-3 sm:grid-cols-2"><button onClick={onReset} className="rounded-xl border border-slate-700 px-4 py-3 font-bold">Créer un autre clip</button><button onClick={onEdit} className="rounded-xl border border-slate-700 px-4 py-3 font-bold">Modifier et régénérer</button></div></div></section>;
 }
-function ErrorScreen({ message, onRetry, onEdit }: { message: string; onRetry: () => void; onEdit: () => void }) { return <section className="mx-auto grid min-h-[80vh] max-w-2xl place-items-center px-5 pt-20 text-center"><div className="rounded-[2rem] border border-rose-500/30 bg-slate-950/90 p-8"><h1 className="text-3xl font-black">Nous n’avons pas pu terminer ce clip</h1><p className="mt-5 leading-7 text-slate-300">{message || "Vos crédits ont été recrédités. Vous pouvez recommencer."}</p><button onClick={onRetry} className="mt-7 w-full rounded-xl bg-cyan-300 px-5 py-4 font-black text-slate-950">Recommencer</button><button onClick={onEdit} className="mt-3 w-full rounded-xl border border-slate-700 px-5 py-3 font-bold">Modifier mon idée</button><a href="mailto:support@rudyo.ai" className="mt-5 inline-block text-sm text-slate-400 underline">Contacter l’assistance</a></div></section>; }
+function ErrorScreen({ message, canRetry, onRetry, onEdit }: { message: string; canRetry: boolean; onRetry: () => void; onEdit: () => void }) { return <section className="mx-auto grid min-h-[80vh] max-w-2xl place-items-center px-5 pt-20 text-center"><div className="rounded-[2rem] border border-rose-500/30 bg-slate-950/90 p-8"><h1 className="text-3xl font-black">Nous n’avons pas pu terminer ce clip</h1><p role="alert" className="mt-5 leading-7 text-slate-300">{message || "La création s’est interrompue. Votre photo, votre musique et votre idée sont conservées."}</p>{canRetry ? <p className="mt-3 text-sm text-cyan-200">Votre photo, votre musique et votre idée sont conservées. La relance ne vous débite pas une seconde fois.</p> : null}<button data-testid="clip-retry" onClick={onRetry} className="mt-7 w-full rounded-xl bg-cyan-300 px-5 py-4 font-black text-slate-950">{canRetry ? "Réessayer" : "Recommencer"}</button><button onClick={onEdit} className="mt-3 w-full rounded-xl border border-slate-700 px-5 py-3 font-bold">Modifier mon idée</button><a href="mailto:support@rudyo.ai" className="mt-5 inline-block text-sm text-slate-400 underline">Contacter l’assistance</a></div></section>; }

@@ -1,0 +1,3 @@
+file 'C:/Users/CIP FARO/rudyo-video-studio/source/media/exports/portrait-rudy-faded-4s.mp4'
+file 'C:/Users/CIP FARO/rudyo-video-studio/source/media/exports/uneseulevoix-main-52s.mp4'
+file 'C:/Users/CIP FARO/rudyo-video-studio/source/media/exports/portrait-rudy-faded-4s.mp4'

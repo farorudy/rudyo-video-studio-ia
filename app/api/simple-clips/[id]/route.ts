@@ -61,7 +61,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       projectId: project.id,
       message: project.paymentCompletedAt ? "Vos crédits ont été ajoutés. Vous pouvez maintenant générer votre clip." : "Votre projet est conservé.",
       ...quote,
-      ...getClipAuthorization(quote.totalCredits, user.creditsRemaining, worker.available, economics.enabled, quote.supported, quote.fitsSelectedPlan),
+      ...getClipAuthorization(quote.totalCredits, user.creditsRemaining, worker.paidGenerationAllowed, economics.enabled, quote.supported, quote.fitsSelectedPlan),
     }, { headers: { "Cache-Control": "private, no-store" } });
   }
   let task = project.generationTasks[0];

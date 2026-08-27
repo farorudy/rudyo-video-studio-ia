@@ -70,6 +70,28 @@ test("manifest accepts a complete seven-minute clip and rejects longer audio", a
   assert.throws(() => montageManifestSchema.parse({ ...manifest, audio: { ...manifest.audio, durationSeconds: 421 } }));
 });
 
+test("le manifeste clip 240 s impose 24 scènes de 10 s avec le modèle exact", async () => {
+  const { clipWorkerManifestSchema } = await import("../src/types.js");
+  const manifest = {
+    version: 1,
+    jobId: "12345678-1234-4234-8234-123456789abc",
+    userId: "user",
+    projectId: "project",
+    finalExportId: "22345678-1234-4234-8234-123456789abc",
+    photoStorageKey: "users/user/photo.jpg",
+    audioStorageKey: "users/user/music.mp3",
+    audioStartSeconds: 0,
+    durationSeconds: 240,
+    referenceAssetUri: "asset://authorized-person-1",
+    scenes: Array.from({ length: 24 }, (_, order) => ({ id: `scene-${order}`, order, title: `Plan ${order + 1}`, prompt: "Portrait cinématographique cohérent de l’artiste en mouvement naturel.", durationSeconds: 10, modelId: "dreamina-seedance-2-0-260128", resolution: "720p", ratio: "9:16" })),
+    outputStorageKey: "users/user/final.mp4",
+    plan: "LONG",
+    creditReservationId: "reservation",
+  };
+  assert.equal(clipWorkerManifestSchema.parse(manifest).scenes.length, 24);
+  assert.throws(() => clipWorkerManifestSchema.parse({ ...manifest, scenes: manifest.scenes.map((scene, index) => index === 0 ? { ...scene, modelId: "another-model" } : scene) }));
+});
+
 test("heartbeat, verification and cleanup use the production worker path", async () => {
   const [database, processor, cleanup] = await Promise.all([
     readFile(path.join(process.cwd(), "src", "db.ts"), "utf8"),
@@ -81,4 +103,14 @@ test("heartbeat, verification and cleanup use the production worker path", async
   assert.match(database, /"provider" <> 'TEST_FIXTURE'/);
   assert.match(processor, /finally[\s\S]*rm\(directory, \{ recursive: true, force: true \}\)/);
   assert.match(cleanup, /deleteSystemTestPrefix/);
+});
+
+test("Railway utilise une liveness séparée de la readiness fournisseur", async () => {
+  const [server, railway] = await Promise.all([
+    readFile(path.join(process.cwd(), "src", "server.ts"), "utf8"),
+    readFile(path.join(process.cwd(), "..", "railway.toml"), "utf8"),
+  ]);
+  assert.match(server, /request\.url === "\/health\/live"/);
+  assert.match(server, /json\(response, 200, \{ status: "ok", ok: true \}\)/);
+  assert.match(railway, /healthcheckPath = "\/health\/live"/);
 });

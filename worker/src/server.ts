@@ -63,6 +63,10 @@ function json(response: import("node:http").ServerResponse, status: number, valu
 
 export function startHealthServer(onJob: (jobId: string) => void) {
   const server = createServer(async (request, response) => {
+    if (request.method === "GET" && request.url === "/health/live") {
+      json(response, 200, { status: "ok", ok: true });
+      return;
+    }
     if (request.method === "GET" && request.url === "/health") {
       const checks = { ffmpeg: false, database: false, storage: false };
       await Promise.all([
@@ -74,7 +78,7 @@ export function startHealthServer(onJob: (jobId: string) => void) {
       // Le mode est explicite et non devinable : « mock » ne doit jamais
       // autoriser un débit, quel que soit l'état des autres contrôles.
       const mode: "mock" | "seedance" = config.mockMode ? "mock" : "seedance";
-      const providerReady = mode === "seedance" && Boolean(config.arkApiKey);
+      const providerReady = mode === "seedance" && Boolean(config.arkApiKey) && config.bytePlusAssetLibraryReady;
       json(response, ok ? 200 : 503, {
         status: ok ? "ok" : "degraded",
         ok,

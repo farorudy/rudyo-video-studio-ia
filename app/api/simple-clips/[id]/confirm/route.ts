@@ -34,7 +34,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const selectedPlan = project.clipPlan as AutomaticClipPlanCode;
     const quote = quoteClip(project.billedDurationSeconds || project.durationSeconds || 0, 0, selectedPlan);
     const economics = getClipEconomics(quote.normalizedSeconds, selectedPlan);
-    const authorization = getClipAuthorization(quote.totalCredits, current.creditsRemaining, worker.available, economics.enabled, quote.supported, quote.fitsSelectedPlan);
+    const authorization = getClipAuthorization(quote.totalCredits, current.creditsRemaining, worker.paidGenerationAllowed, economics.enabled, quote.supported, quote.fitsSelectedPlan);
     if (!authorization.allowed) {
       const response = { error: authorization.refusalCode === "INSUFFICIENT_CREDITS" ? `Il vous manque ${authorization.missingCredits} crédits.` : "La génération ne peut pas démarrer.", ...authorization, projectId: id };
       await finishIdempotentRequest(idem.record.id, authorization.refusalCode === "INSUFFICIENT_CREDITS" ? 402 : 503, response);

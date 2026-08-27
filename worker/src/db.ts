@@ -1,4 +1,5 @@
 import pg from "pg";
+import { randomUUID } from "node:crypto";
 import { config } from "./config.js";
 import type { ClipWorkerJob, ClipWorkerManifest, MontageJob, MontageManifest, WorkerStage } from "./types.js";
 
@@ -9,6 +10,58 @@ export const pool = new Pool({
   application_name: "rudyo-montage-worker",
   statement_timeout: 30_000,
 });
+
+export type ClipGenerationTaskRow = {
+  id: string;
+  sceneId: string;
+  bytePlusTaskId: string | null;
+  status: string;
+  permanentVideoUrl: string | null;
+  actualCompletionTokens: number | null;
+  errorCode: string | null;
+};
+
+export async function ensureClipGenerationTask(job: ClipWorkerJob, manifest: ClipWorkerManifest, scene: ClipWorkerManifest["scenes"][number]) {
+  const idempotencyKey = `clip-worker:${job.id}:scene:${scene.id}`;
+  await pool.query(`
+    INSERT INTO "GenerationTask" ("id","userId","projectId","sceneId","idempotencyKey","provider","source","billingMode","modelId","status","requestPayload","estimatedCredits","createdAt","updatedAt")
+    VALUES ($1,$2,$3,$4,$5,'byteplus','USER','INCLUDED_IN_PROJECT',$6,'PENDING',$7::jsonb,0,NOW(),NOW())
+    ON CONFLICT ("idempotencyKey") DO NOTHING
+  `, [randomUUID(), job.userId, job.projectId, scene.id, idempotencyKey, scene.modelId, JSON.stringify({ model: scene.modelId, prompt: scene.prompt, duration: scene.durationSeconds, resolution: scene.resolution, ratio: scene.ratio, referenceAssetUri: manifest.referenceAssetUri })]);
+  const result = await pool.query<ClipGenerationTaskRow>(`SELECT "id","sceneId","bytePlusTaskId","status"::text,"permanentVideoUrl","actualCompletionTokens","errorCode" FROM "GenerationTask" WHERE "idempotencyKey"=$1`, [idempotencyKey]);
+  if (!result.rows[0]) throw new Error("GENERATION_TASK_PERSIST_FAILED");
+  return result.rows[0];
+}
+
+export async function attachClipProviderTask(taskId: string, providerTaskId: string, response: unknown) {
+  await pool.query(`UPDATE "GenerationTask" SET "bytePlusTaskId"=$2,"status"='SUBMITTED',"responsePayload"=$3::jsonb,"updatedAt"=NOW() WHERE "id"=$1 AND "bytePlusTaskId" IS NULL`, [taskId, providerTaskId, JSON.stringify(response)]);
+  await pool.query(`UPDATE "StoryboardScene" SET "status"='QUEUED',"updatedAt"=NOW() WHERE "id"=(SELECT "sceneId" FROM "GenerationTask" WHERE "id"=$1)`, [taskId]);
+}
+
+export async function markClipSubmissionUnknown(taskId: string) {
+  await pool.query(`UPDATE "GenerationTask" SET "status"='SUBMITTED',"errorCode"='SUBMISSION_UNKNOWN',"errorMessage"='Soumission BytePlus incertaine : aucune recréation automatique.',"updatedAt"=NOW() WHERE "id"=$1`, [taskId]);
+}
+
+export async function updateClipProviderProgress(taskId: string, remote: { status?: string; error?: unknown }) {
+  const failed = remote.status === "failed" || remote.status === "cancelled" || remote.status === "expired";
+  await pool.query(`UPDATE "GenerationTask" SET "status"=$2::"GenerationTaskStatus","responsePayload"=$3::jsonb,"errorCode"=$4,"errorMessage"=$5,"lastPolledAt"=NOW(),"completedAt"=CASE WHEN $2 IN ('FAILED','CANCELLED') THEN NOW() ELSE "completedAt" END,"updatedAt"=NOW() WHERE "id"=$1`, [taskId, failed ? (remote.status === "cancelled" ? "CANCELLED" : "FAILED") : "PROCESSING", JSON.stringify(remote), failed ? String((remote.error as { code?: string } | undefined)?.code || "BYTEPLUS_TASK_FAILED") : null, failed ? String((remote.error as { message?: string } | undefined)?.message || "La scène Seedance a échoué.").slice(0, 300) : null]);
+  await pool.query(`UPDATE "StoryboardScene" SET "status"=$2::"StoryboardSceneStatus","updatedAt"=NOW() WHERE "id"=(SELECT "sceneId" FROM "GenerationTask" WHERE "id"=$1)`, [taskId, failed ? (remote.status === "cancelled" ? "CANCELED" : "FAILED") : "RUNNING"]);
+}
+
+export async function completeClipGenerationTask(options: { job: ClipWorkerJob; taskId: string; sceneId: string; remote: unknown; providerVideoUrl: string; permanentVideoUrl: string; tokens: number }) {
+  const costUsd = (options.tokens / 1_000_000) * config.bytePlusUsdPerMillionTokens;
+  const costEur = costUsd * config.usdToEurRate;
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`UPDATE "GenerationTask" SET "status"='SUCCEEDED',"responsePayload"=$2::jsonb,"sourceVideoUrl"=$3,"permanentVideoUrl"=$4,"actualCompletionTokens"=$5,"actualCostUsd"=$6,"lastPolledAt"=NOW(),"completedAt"=NOW(),"errorCode"=NULL,"errorMessage"=NULL,"updatedAt"=NOW() WHERE "id"=$1`, [options.taskId, JSON.stringify(options.remote), options.providerVideoUrl, options.permanentVideoUrl, options.tokens, costUsd]);
+    await client.query(`UPDATE "StoryboardScene" SET "status"='COMPLETED',"updatedAt"=NOW() WHERE "id"=$1`, [options.sceneId]);
+    await client.query(`INSERT INTO "GenerationVariant" ("id","taskId","sceneId","variantNumber","videoUrl","durationSeconds","selected","createdAt") VALUES ($1,$2,$3,1,$4,NULL,true,NOW()) ON CONFLICT ("taskId","variantNumber") DO UPDATE SET "videoUrl"=EXCLUDED."videoUrl","selected"=true`, [randomUUID(), options.taskId, options.sceneId, options.permanentVideoUrl]);
+    await client.query(`INSERT INTO "TokenUsage" ("id","userId","projectId","sceneId","taskId","modelId","completionTokens","costUsd","costEur","creditsCharged","createdAt") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,0,NOW()) ON CONFLICT ("taskId") DO UPDATE SET "completionTokens"=EXCLUDED."completionTokens","costUsd"=EXCLUDED."costUsd","costEur"=EXCLUDED."costEur"`, [randomUUID(), options.job.userId, options.job.projectId, options.sceneId, options.taskId, config.bytePlusVideoModel, options.tokens, costUsd, costEur]);
+    await client.query("COMMIT");
+  } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
+  return { costUsd, costEur };
+}
 
 // pg emits connection failures from idle clients on the Pool itself. Without
 // a listener, a brief database restart terminates the whole worker process.
@@ -350,14 +403,14 @@ export async function completeClipJob(job: ClipWorkerJob, manifest: ClipWorkerMa
     const updated = await client.query(`UPDATE "ClipWorkerJob" SET "status"='SUCCEEDED', "progress"=100, "completedAt"=NOW(), "lockedBy"=NULL, "lockedAt"=NULL, "leaseExpiresAt"=NULL, "updatedAt"=NOW() WHERE "id"=$1 AND "lockedBy"=$2`, [job.id, config.workerId]);
     if (updated.rowCount !== 1) throw new Error("LEASE_LOST");
     await client.query(`UPDATE "FinalExport" SET "status"='COMPLETED', "storageKey"=$2, "url"=$3, "errorMessage"=NULL, "updatedAt"=NOW() WHERE "id"=$1`, [job.finalExportId, manifest.outputStorageKey, outputUrl]);
-    await client.query(`UPDATE "VideoProject" SET "status"='COMPLETED', "actualProviderCostEur"=0, "actualMarginEur"="clientRevenueEur", "updatedAt"=NOW() WHERE "id"=$1`, [job.projectId]);
+    await client.query(`UPDATE "VideoProject" AS project SET "status"='COMPLETED', "actualProviderCostEur"=costs.total, "actualMarginEur"=CASE WHEN project."clientRevenueEur" IS NULL THEN NULL ELSE project."clientRevenueEur"-costs.total END, "updatedAt"=NOW() FROM (SELECT COALESCE(SUM("costEur"),0)::double precision AS total FROM "TokenUsage" WHERE "projectId"=$1) AS costs WHERE project."id"=$1`, [job.projectId]);
     const confirmed = await client.query<{ userId: string; amount: number; description: string; action: string }>(`WITH changed AS (UPDATE "CreditTransaction" SET "status"='CONFIRMED', "confirmedAt"=NOW(), "updatedAt"=NOW() WHERE "id"=$1 AND "status"='RESERVED' RETURNING "userId", ABS("creditsAmount")::int AS amount, "description", "action"::text AS action) SELECT * FROM changed`, [manifest.creditReservationId]);
     const row = confirmed.rows[0];
     if (row) {
       await client.query(`UPDATE "User" SET "creditsUsed"="creditsUsed"+$2, "updatedAt"=NOW() WHERE "id"=$1`, [row.userId, row.amount]);
-      await client.query(`INSERT INTO "CreditUsage" ("id","userId","amount","reason","metadata","reservationId","createdAt") VALUES (md5(random()::text || clock_timestamp()::text),$1,$2,$3,jsonb_build_object('reservationId',$4::text,'action',$5::text,'provider','railway-mock'),$4::text,NOW()) ON CONFLICT ("reservationId") DO NOTHING`, [row.userId, row.amount, row.description, manifest.creditReservationId, row.action]);
+      await client.query(`INSERT INTO "CreditUsage" ("id","userId","amount","reason","metadata","reservationId","createdAt") VALUES (md5(random()::text || clock_timestamp()::text),$1,$2,$3,jsonb_build_object('reservationId',$4::text,'action',$5::text,'provider',$6::text),$4::text,NOW()) ON CONFLICT ("reservationId") DO NOTHING`, [row.userId, row.amount, row.description, manifest.creditReservationId, row.action, config.mockMode ? "railway-mock" : "byteplus-seedance"]);
     }
-    await client.query(`INSERT INTO "ClipWorkerJobEvent" ("id","jobId","status","progress","message","createdAt") VALUES (md5(random()::text || clock_timestamp()::text),$1,'SUCCEEDED',100,'Clip simulé terminé',NOW())`, [job.id]);
+    await client.query(`INSERT INTO "ClipWorkerJobEvent" ("id","jobId","status","progress","message","createdAt") VALUES (md5(random()::text || clock_timestamp()::text),$1,'SUCCEEDED',100,$2,NOW())`, [job.id, config.mockMode ? "Clip simulé terminé" : "Clip Seedance terminé et validé"]);
     await client.query("COMMIT");
   } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
 }
@@ -380,6 +433,11 @@ export async function retryOrFailClipJob(job: ClipWorkerJob, manifest: ClipWorke
 export async function failClipValidation(job: ClipWorkerJob, manifest: ClipWorkerManifest, message: string) {
   await terminateClipJob(job, manifest, "FAILED_VALIDATION", message);
   await appendClipEvent(job.id, "REFUNDED", 100, "Résultat non conforme — crédits remboursés");
+}
+
+export async function failClipTerminal(job: ClipWorkerJob, manifest: ClipWorkerManifest, code: string, message: string) {
+  await terminateClipJob(job, manifest, code, message);
+  await appendClipEvent(job.id, "REFUNDED", 100, "Génération interrompue — crédits remboursés");
 }
 
 async function terminateClipJob(job: ClipWorkerJob, manifest: ClipWorkerManifest, code: string, message: string) {

@@ -21,6 +21,7 @@ export const CLIP_OFFER = Object.freeze({
 
 // Compatibilité avec les imports historiques. Les limites commerciales sont dans CLIP_PLANS.
 export const TIKTOK_OFFER = Object.freeze({ ...CLIP_OFFER, ...CLIP_PLANS.TIKTOK });
+export const SEEDANCE_SCENE_DURATION_SECONDS = 10;
 
 function envNumber(name: string, fallback: number) {
   const parsed = Number(process.env[name]);
@@ -73,7 +74,11 @@ export const quoteTikTokClip = quoteClip;
 
 export function getClipEconomics(durationSeconds: number, selectedPlan?: AutomaticClipPlanCode) {
   const quote = quoteClip(durationSeconds, 0, selectedPlan);
-  const providerCostEur = quote.normalizedSeconds * envNumber("TIKTOK_PROVIDER_COST_EUR_PER_SECOND", 0.072);
+  // Tarif public Seedance 2.0 enhanced, 720p, sans vidéo d'entrée : 0,303 USD/s.
+  // Une ancienne surcharge plus basse ne peut jamais minorer ce plancher officiel.
+  const officialProviderCostEurPerSecond = envNumber("SEEDANCE_PROVIDER_COST_USD_PER_SECOND", 0.303) * envNumber("USD_TO_EUR_RATE", 0.86);
+  const providerCostEurPerSecond = Math.max(officialProviderCostEurPerSecond, envNumber("TIKTOK_PROVIDER_COST_EUR_PER_SECOND", 0));
+  const providerCostEur = quote.normalizedSeconds * providerCostEurPerSecond;
   const workerCostEur = envNumber("TIKTOK_WORKER_COST_EUR", 0.1);
   const storageCostEur = envNumber("TIKTOK_STORAGE_COST_EUR", 0.02);
   const retryReserveEur = Math.min(envNumber("TIKTOK_RETRY_RESERVE_EUR", 2), providerCostEur * 0.1);
@@ -87,7 +92,7 @@ export function getClipEconomics(durationSeconds: number, selectedPlan?: Automat
       : quote.plan === "PREMIUM"
         ? process.env.CLIP_PREMIUM_ENABLED !== "false"
         : false;
-  return { ...quote, clientRevenueEur: quote.priceEur, providerCostEur, workerCostEur, storageCostEur, retryReserveEur, internalCostEur, marginEur, minimumMarginEur, enabled: quote.supported && planEnabled && marginEur >= minimumMarginEur };
+  return { ...quote, clientRevenueEur: quote.priceEur, providerCostEurPerSecond, providerCostEur, workerCostEur, storageCostEur, retryReserveEur, internalCostEur, marginEur, minimumMarginEur, enabled: quote.supported && planEnabled && marginEur >= minimumMarginEur };
 }
 
 export const getTikTokEconomics = getClipEconomics;
@@ -118,9 +123,51 @@ export function buildSongSections(durationSeconds: number) {
   return labels.map((label, index) => ({ label, startSec: Number(((durationSeconds * index) / labels.length).toFixed(3)), endSec: Number(((durationSeconds * (index + 1)) / labels.length).toFixed(3)), energy: energy[index] }));
 }
 
-export function buildTikTokScenes(durationSeconds: number, idea: string, style?: string) {
+export function buildTikTokScenes(durationSeconds: number, idea: string, style?: string, referenceImageKey?: string) {
   const normalizedSeconds = normalizeClipDuration(durationSeconds);
   if (normalizedSeconds > CLIP_OFFER.maxDurationSeconds) throw new Error("DURATION_TOO_LONG");
-  const count = Math.max(1, Math.ceil(normalizedSeconds / 10)), sections = buildSongSections(normalizedSeconds), shots = ["plan large", "plan moyen", "gros plan"];
-  return Array.from({ length: count }, (_, index) => { const start = index * 10, end = Math.min(normalizedSeconds, start + 10), section = sections.find((item) => start >= item.startSec && start < item.endSec) || sections.at(-1)!; return { order: index, title: `Clip automatique · ${section.label} ${index + 1}`, startTimeSeconds: start, endTimeSeconds: end, durationSeconds: Math.max(4, Math.ceil(end - start)), prompt: [idea.trim(), style ? `Direction visuelle : ${style.trim()}.` : "", `${section.label}, énergie ${section.energy}, ${shots[index % shots.length]}.`, "Même artiste et même identité que la photo de référence, continuité des vêtements, des lieux et de la lumière. Mouvement naturel, narration progressive, sans texte ni logo."].filter(Boolean).join(" ") }; });
+  const count = Math.max(1, Math.ceil(normalizedSeconds / SEEDANCE_SCENE_DURATION_SECONDS));
+  const sections = buildSongSections(normalizedSeconds);
+  const cameras = ["plan large avec travelling avant lent", "plan moyen stabilisé", "gros plan avec mouvement orbital discret"];
+  const lightings = ["lumière douce et cinématographique", "contre-jour coloré cohérent", "lumière principale chaude et naturelle"];
+  return Array.from({ length: count }, (_, index) => {
+    const start = Math.round((normalizedSeconds * index) / count);
+    const end = Math.round((normalizedSeconds * (index + 1)) / count);
+    const section = sections.find((item) => start >= item.startSec && start < item.endSec) || sections.at(-1)!;
+    const cameraMovement = cameras[index % cameras.length];
+    const lighting = lightings[index % lightings.length];
+    const description = `${section.label} : progression narrative de l'artiste, énergie ${section.energy}.`;
+    const continuityNotes = "Conserver strictement le même visage, la même coiffure, la même tenue principale, la palette et la direction de lumière de la scène précédente.";
+    const prompt = [idea.trim(), style ? `Direction visuelle : ${style.trim()}.` : "", description, `${cameraMovement}, ${lighting}.`, continuityNotes, "Vidéo verticale 9:16, mouvement naturel, sans texte, sans sous-titre et sans logo."].filter(Boolean).join(" ");
+    return {
+      order: index,
+      title: `Clip automatique · ${section.label} ${index + 1}`,
+      startTimeSeconds: start,
+      endTimeSeconds: end,
+      durationSeconds: Math.round(end - start),
+      description,
+      prompt,
+      cameraMovement,
+      lighting,
+      transition: index === count - 1 ? "fondu au noir" : "raccord de mouvement doux",
+      continuityNotes,
+      referenceImageKey: referenceImageKey || null,
+    };
+  });
+}
+
+export function validateClipScenario(
+  scenes: Array<{ order: number; startTimeSeconds: number; endTimeSeconds: number; durationSeconds: number }>,
+  expectedDurationSeconds: number,
+) {
+  if (scenes.length === 0) throw new Error("SCENARIO_MISSING");
+  let cursor = 0;
+  for (const [index, scene] of scenes.entries()) {
+    if (scene.order !== index || scene.startTimeSeconds !== cursor) throw new Error("SCENARIO_TIMELINE_INVALID");
+    if (scene.endTimeSeconds <= scene.startTimeSeconds || scene.durationSeconds !== scene.endTimeSeconds - scene.startTimeSeconds) throw new Error("SCENARIO_DURATION_INVALID");
+    if (scene.durationSeconds < 4 || scene.durationSeconds > 15) throw new Error("SCENARIO_SEEDANCE_DURATION_UNSUPPORTED");
+    cursor = scene.endTimeSeconds;
+  }
+  if (cursor !== expectedDurationSeconds) throw new Error("SCENARIO_TOTAL_DURATION_INVALID");
+  return { sceneCount: scenes.length, durationSeconds: cursor };
 }

@@ -10,6 +10,7 @@
     "admin:secrets": "node scripts/generate-admin-secrets.mjs",
     "check:local": "node scripts/check-local-env.mjs",
     "build": "prisma generate && next build",
+    "build:vercel": "npm run build",
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
@@ -20,9 +21,10 @@
     "montage:smart": "node scripts/montage-smart.js",
     "test:accented-slide": "tsx scripts/test-accented-slide.ts",
     "test:seedance": "tsx --test lib/clip-pricing.test.ts tests/seedance-*.test.ts tests/tiktok-*.test.ts tests/clip-*.test.ts",
-    "test:security": "tsx --test tests/security-*.test.ts",
+    "test:security": "tsx --test tests/security-*.test.ts tests/http-range.test.ts",
     "test": "npm run test:security && npm run test:seedance",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "migrate:invalid-clips": "tsx scripts/migrate-invalid-clips.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.98.0",

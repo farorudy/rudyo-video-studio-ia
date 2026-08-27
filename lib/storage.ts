@@ -165,6 +165,7 @@ export function storageKeyFromClientRef(value?: string | null) {
 export async function openStorageStream(key: string): Promise<{
   stream: ReadableStream<Uint8Array>;
   size?: number;
+  contentLength?: number;
 } | null> {
   const normalized = normalizeKey(key);
 
@@ -173,7 +174,7 @@ export async function openStorageStream(key: string): Promise<{
     if (!blob) return null;
     const result = await get(blob.pathname, { access: "private", useCache: false });
     if (!result || result.statusCode !== 200) return null;
-    return { stream: result.stream, size: blob.size };
+    return { stream: result.stream, size: blob.size, contentLength: blob.size };
   }
 
   try {
@@ -182,7 +183,45 @@ export async function openStorageStream(key: string): Promise<{
     return {
       stream: Readable.toWeb(createReadStream(localPath)) as ReadableStream<Uint8Array>,
       size: stats.size,
+      contentLength: stats.size,
     };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+export async function getStorageSize(key: string) {
+  const normalized = normalizeKey(key);
+  if (isCloudStorageEnabled()) return (await findCloudBlobByKey(normalized))?.size ?? null;
+  try { return (await fs.stat(toLocalPath(normalized))).size; }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+export async function openStorageRange(key: string, start: number, end: number): Promise<{
+  stream: ReadableStream<Uint8Array>;
+  size: number;
+  contentLength: number;
+} | null> {
+  const normalized = normalizeKey(key);
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start) throw new Error("Plage de stockage invalide.");
+  if (isCloudStorageEnabled()) {
+    const blob = await findCloudBlobByKey(normalized);
+    if (!blob || start >= blob.size) return null;
+    const boundedEnd = Math.min(end, blob.size - 1);
+    const result = await get(blob.pathname, { access: "private", useCache: false, headers: { Range: `bytes=${start}-${boundedEnd}` } });
+    if (!result || ![200, 206].includes(result.statusCode as number) || !result.stream) return null;
+    return { stream: result.stream, size: blob.size, contentLength: boundedEnd - start + 1 };
+  }
+  try {
+    const localPath = toLocalPath(normalized);
+    const stats = await fs.stat(localPath);
+    if (start >= stats.size) return null;
+    const boundedEnd = Math.min(end, stats.size - 1);
+    return { stream: Readable.toWeb(createReadStream(localPath, { start, end: boundedEnd })) as ReadableStream<Uint8Array>, size: stats.size, contentLength: boundedEnd - start + 1 };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;

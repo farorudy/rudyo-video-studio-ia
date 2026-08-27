@@ -25,6 +25,9 @@ export interface WorkerHealth {
 }
 
 export type PaidGenerationRefusal =
+  | "PAID_GENERATION_DISABLED"
+  | "WORKER_EXPECTED_MODE_INVALID"
+  | "WORKER_MODE_MISMATCH"
   | "WORKER_UNREACHABLE"
   | "WORKER_IN_MOCK_MODE"
   | "PROVIDER_NOT_READY"
@@ -53,11 +56,23 @@ export function canStartPaidGeneration(
   health: Partial<WorkerHealth> | null | undefined,
   env: NodeJS.ProcessEnv = process.env,
 ): { allowed: true } | { allowed: false; refusal: PaidGenerationRefusal } {
+  if (env.PAID_GENERATION_ENABLED !== "true") {
+    return { allowed: false, refusal: "PAID_GENERATION_DISABLED" };
+  }
+
+  const expectedMode = env.WORKER_EXPECTED_MODE;
+  if (expectedMode !== "mock" && expectedMode !== "seedance") {
+    return { allowed: false, refusal: "WORKER_EXPECTED_MODE_INVALID" };
+  }
+
   if (!health?.reachable) return { allowed: false, refusal: "WORKER_UNREACHABLE" };
+
+  if (health.mode !== expectedMode) {
+    return { allowed: false, refusal: "WORKER_MODE_MISMATCH" };
+  }
 
   if (health.mode !== "seedance") {
     // Hors production, un worker simulé peut facturer des crédits factices.
-    if (mockBillingAllowed(env)) return { allowed: true };
     return { allowed: false, refusal: "WORKER_IN_MOCK_MODE" };
   }
 

@@ -36,6 +36,7 @@ export async function GET(req: NextRequest) {
   const purchaseIds = new Set(
     purchases.map((purchase) => purchase.stripeSessionId),
   );
+  const reservationIds = new Set(creditTransactions.map((transaction) => transaction.id));
   const transactions = [
     ...creditTransactions
       .filter((transaction) => {
@@ -52,6 +53,8 @@ export async function GET(req: NextRequest) {
         creditsAmount: transaction.creditsAmount,
         description: transaction.description,
         status: transaction.status,
+        statusLabel: transaction.status === "RESERVED" ? "Crédits réservés — génération en attente" : transaction.status === "CONFIRMED" ? "Débit confirmé" : transaction.status === "REFUNDED" ? "Crédits recrédités" : transaction.status,
+        displayedAmount: transaction.status === "REFUNDED" ? Math.abs(transaction.creditsAmount) : transaction.creditsAmount,
         createdAt: transaction.createdAt,
       })),
     ...purchases.map((purchase) => ({
@@ -64,15 +67,19 @@ export async function GET(req: NextRequest) {
         { style: "currency", currency: "EUR" },
       )}`,
       status: purchase.status,
+      statusLabel: purchase.status === "CONFIRMED" ? "Crédits ajoutés" : purchase.status === "PENDING" || purchase.status === "RESERVED" ? "Paiement en attente" : purchase.status,
+      displayedAmount: purchase.tokens,
       createdAt: purchase.createdAt,
     })),
-    ...usages.map((usage) => ({
+    ...usages.filter((usage) => !usage.reservationId || !reservationIds.has(usage.reservationId)).map((usage) => ({
       id: usage.id,
       type: "USAGE",
       action: "TOKEN_USAGE",
       creditsAmount: -usage.amount,
       description: usage.reason,
       status: "CONFIRMED",
+      statusLabel: "Débit confirmé",
+      displayedAmount: -usage.amount,
       createdAt: usage.createdAt,
     })),
   ]

@@ -9,6 +9,8 @@ type TransactionItem = {
   creditsAmount: number;
   description: string;
   status: string;
+  statusLabel?: string;
+  displayedAmount?: number;
   createdAt: string;
 };
 
@@ -81,12 +83,12 @@ export default function CreditHistory() {
               <td className="px-4 py-3 text-slate-300">{transaction.type}</td>
               <td className="px-4 py-3 text-slate-300">{transaction.action}</td>
               <td className="px-4 py-3 text-slate-300">
-                {transaction.creditsAmount > 0
-                  ? `+${transaction.creditsAmount}`
-                  : transaction.creditsAmount}
+                {(transaction.displayedAmount ?? transaction.creditsAmount) > 0
+                  ? `+${transaction.displayedAmount ?? transaction.creditsAmount}`
+                  : transaction.displayedAmount ?? transaction.creditsAmount}
               </td>
               <td className="px-4 py-3 text-slate-300">
-                {transaction.status}
+                {transaction.statusLabel || transaction.status}
               </td>
               <td className="px-4 py-3 text-slate-300">
                 {transaction.description}

@@ -12,25 +12,36 @@ const healthy: WorkerHealth = {
 };
 
 const env = (values: Record<string, string>) => values as unknown as NodeJS.ProcessEnv;
-const PROD = env({ VERCEL_ENV: "production" });
-const PREVIEW = env({ VERCEL_ENV: "preview", ALLOW_MOCK_BILLING: "true" });
+const PROD = env({ VERCEL_ENV: "production", WORKER_EXPECTED_MODE: "seedance", PAID_GENERATION_ENABLED: "true" });
+const PREVIEW = env({ VERCEL_ENV: "preview", WORKER_EXPECTED_MODE: "mock", PAID_GENERATION_ENABLED: "false", ALLOW_MOCK_BILLING: "true" });
 
 test("un worker en mode mock ne peut jamais facturer en production", () => {
   const result = canStartPaidGeneration({ ...healthy, mode: "mock", providerReady: false }, PROD);
   assert.equal(result.allowed, false);
-  assert.equal(result.allowed === false && result.refusal, "WORKER_IN_MOCK_MODE");
+  assert.equal(result.allowed === false && result.refusal, "WORKER_MODE_MISMATCH");
 });
 
 test("ALLOW_MOCK_BILLING est ignoré en production", () => {
-  const forced = env({ VERCEL_ENV: "production", ALLOW_MOCK_BILLING: "true" });
+  const forced = env({ VERCEL_ENV: "production", WORKER_EXPECTED_MODE: "mock", PAID_GENERATION_ENABLED: "true", ALLOW_MOCK_BILLING: "true" });
   assert.equal(mockBillingAllowed(forced), false);
   assert.equal(isProductionRuntime(forced), true);
   assert.equal(canStartPaidGeneration({ ...healthy, mode: "mock" }, forced).allowed, false);
 });
 
-test("en Preview, un worker mock peut facturer des crédits factices", () => {
+test("en Preview, un worker mock ne peut pas facturer", () => {
   assert.equal(mockBillingAllowed(PREVIEW), true);
-  assert.equal(canStartPaidGeneration({ ...healthy, mode: "mock", providerReady: false }, PREVIEW).allowed, true);
+  const result = canStartPaidGeneration({ ...healthy, mode: "mock", providerReady: false }, PREVIEW);
+  assert.equal(result.allowed, false);
+  assert.equal(result.allowed === false && result.refusal, "PAID_GENERATION_DISABLED");
+});
+
+test("le drapeau de facturation et le mode attendu sont obligatoires", () => {
+  const disabled = canStartPaidGeneration(healthy, env({ VERCEL_ENV: "production", WORKER_EXPECTED_MODE: "seedance", PAID_GENERATION_ENABLED: "false" }));
+  assert.equal(disabled.allowed === false && disabled.refusal, "PAID_GENERATION_DISABLED");
+  const missingMode = canStartPaidGeneration(healthy, env({ VERCEL_ENV: "production", PAID_GENERATION_ENABLED: "true" }));
+  assert.equal(missingMode.allowed === false && missingMode.refusal, "WORKER_EXPECTED_MODE_INVALID");
+  const mismatch = canStartPaidGeneration(healthy, env({ VERCEL_ENV: "production", WORKER_EXPECTED_MODE: "mock", PAID_GENERATION_ENABLED: "true" }));
+  assert.equal(mismatch.allowed === false && mismatch.refusal, "WORKER_MODE_MISMATCH");
 });
 
 test("un worker injoignable ne permet aucun débit", () => {

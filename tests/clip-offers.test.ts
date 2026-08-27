@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildTikTokScenes, CLIP_PLANS, quoteClip } from "../lib/tiktok-offer";
+import { buildTikTokScenes, CLIP_PLANS, getClipEconomics, quoteClip, validateClipScenario } from "../lib/tiktok-offer";
 
 test("sélectionne automatiquement le plus petit pack compatible", () => {
   assert.equal(quoteClip(15).plan, "TIKTOK");
@@ -44,4 +44,43 @@ test("les storyboards longs contiennent 21, 30 et 42 scènes", () => {
   assert.equal(buildTikTokScenes(300, "Une artiste chante.").length, 30);
   assert.equal(buildTikTokScenes(420, "Une artiste chante.").length, 42);
   assert.throws(() => buildTikTokScenes(421, "Une artiste chante."), /DURATION_TOO_LONG/);
+});
+
+test("un clip de 240 s produit exactement 24 scenes Seedance continues de 10 s", () => {
+  const scenes = buildTikTokScenes(240, "Une artiste interprete son titre sur scene.", "cinematographique", "portrait-key");
+  assert.equal(scenes.length, 24);
+  assert.deepEqual(validateClipScenario(scenes, 240), { sceneCount: 24, durationSeconds: 240 });
+  assert.equal(scenes.reduce((total, scene) => total + scene.durationSeconds, 0), 240);
+  scenes.forEach((scene, index) => {
+    assert.equal(scene.order, index);
+    assert.equal(scene.startTimeSeconds, index * 10);
+    assert.equal(scene.durationSeconds, 10);
+    assert.equal(scene.referenceImageKey, "portrait-key");
+    assert.ok(scene.prompt.length > 20);
+    assert.ok(scene.description.length > 10);
+    assert.ok(scene.cameraMovement.length > 0);
+    assert.ok(scene.lighting.length > 0);
+    assert.ok(scene.transition.length > 0);
+    assert.ok(scene.continuityNotes.length > 0);
+  });
+});
+
+test("le tarif officiel Seedance 2.0 bloque une vente 240 s à 40 euros déficitaire", () => {
+  const previousRate = process.env.TIKTOK_PROVIDER_COST_EUR_PER_SECOND;
+  const previousUsd = process.env.SEEDANCE_PROVIDER_COST_USD_PER_SECOND;
+  const previousFx = process.env.USD_TO_EUR_RATE;
+  process.env.TIKTOK_PROVIDER_COST_EUR_PER_SECOND = "0.072";
+  process.env.SEEDANCE_PROVIDER_COST_USD_PER_SECOND = "0.303";
+  process.env.USD_TO_EUR_RATE = "0.86";
+  try {
+    const economics = getClipEconomics(240, "LONG");
+    assert.equal(economics.priceEur, 40);
+    assert.ok(economics.providerCostEur > 62);
+    assert.ok(economics.marginEur < 0);
+    assert.equal(economics.enabled, false);
+  } finally {
+    if (previousRate === undefined) delete process.env.TIKTOK_PROVIDER_COST_EUR_PER_SECOND; else process.env.TIKTOK_PROVIDER_COST_EUR_PER_SECOND = previousRate;
+    if (previousUsd === undefined) delete process.env.SEEDANCE_PROVIDER_COST_USD_PER_SECOND; else process.env.SEEDANCE_PROVIDER_COST_USD_PER_SECOND = previousUsd;
+    if (previousFx === undefined) delete process.env.USD_TO_EUR_RATE; else process.env.USD_TO_EUR_RATE = previousFx;
+  }
 });

@@ -1,6 +1,7 @@
 "use client";
 
 import { Check, ChevronDown, Download, ImagePlus, Loader2, Music2, Sparkles, Trash2, UploadCloud, WandSparkles } from "lucide-react";
+import { upload as uploadBlob } from "@vercel/blob/client";
 import Image from "next/image";
 import Link from "next/link";
 import { ChangeEvent, DragEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -11,6 +12,7 @@ type PlanCode = "TIKTOK" | "LONG" | "PREMIUM";
 type Quote = { totalCredits: number; requiredCredits: number; priceEur: number; audioDurationSeconds: number; normalizedSeconds: number; billableDurationSeconds: number; plan: PlanCode | "CUSTOM"; planName: string; supported: boolean; fitsSelectedPlan: boolean; recommendedPlan: PlanCode | null; maxPriceEur: number | null; balance: number | null; balanceAfter: number | null; missingCredits: number; missingPriceEur: number; allowed: boolean; workerAvailable: boolean; workerState?: string; workerWaking?: boolean; refusalCode: string | null };
 type ClipState = "form" | "draft" | "processing" | "completed" | "failed";
 type StatusPayload = Partial<Quote> & { state: "draft" | "processing" | "completed" | "failed"; progress?: number; message: string; videoUrl?: string; downloadUrl?: string; projectTitle?: string; durationSeconds?: number; createdAt?: string; error?: string };
+type UploadedClipFiles = { photoFile: File; audioFile: File; photoUrl: string; audioUrl: string };
 const suggestions = ["Romantique", "Cinématographique", "Tropical", "Concert", "Gospel", "Zouk", "Urbain", "Élégant"];
 const example = "Une chanteuse arrive dans un club élégant en voiture américaine blanche. Elle traverse une foule d’admirateurs, monte sur scène et chante devant le public. Style cinématographique, romantique et international.";
 const ACTIVE_PROJECT_KEY = "rudyo-active-simple-clip";
@@ -20,6 +22,33 @@ const planOptions = [
   { code: "LONG" as const, title: "Clip jusqu’à 5 minutes", duration: "5 minutes", maxCredits: CLIP_PLAN_CATALOG.LONG.maxCredits, maxPrice: CLIP_PLAN_CATALOG.LONG.maxPriceInEuros, description: "Idéal pour une chanson complète.", button: "Choisir le clip jusqu’à 5 minutes" },
   { code: "PREMIUM" as const, title: "Clip jusqu’à 7 minutes", duration: "7 minutes", maxCredits: CLIP_PLAN_CATALOG.PREMIUM.maxCredits, maxPrice: CLIP_PLAN_CATALOG.PREMIUM.maxPriceInEuros, description: "Idéal pour un clip long ou une version étendue.", button: "Choisir le clip jusqu’à 7 minutes" },
 ];
+
+/**
+ * Une réponse d'erreur n'est pas toujours du JSON : au-delà de la limite de
+ * corps de requête, l'hébergeur renvoie un 413 en texte brut. On traduit le
+ * code HTTP en message utile plutôt que de laisser fuir une erreur de parsing.
+ */
+function quoteFailureMessage(status: number, audioBytes: number): string {
+  const size = `${(audioBytes / 1048576).toFixed(1)} Mo`;
+  if (status === 413) return `Votre musique pèse ${size}, ce qui dépasse la taille que le serveur accepte de recevoir. Choisissez un MP3 plus léger ou une version compressée.`;
+  if (status === 401 || status === 403) return "Connectez-vous pour obtenir le prix de votre clip.";
+  if (status === 429) return "Trop de demandes de prix en peu de temps. Patientez quelques instants.";
+  if (status >= 500) return "Le service de tarification est momentanément indisponible.";
+  return `Le serveur a refusé le calcul du prix (code ${status}).`;
+}
+
+function safeUploadName(value: string) {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 100) || "fichier";
+}
+
+async function readResponseBody<T>(response: Response): Promise<T> {
+  const raw = await response.text();
+  try {
+    if (!raw.trim()) throw new SyntaxError("Empty response");
+    return JSON.parse(raw) as T;
+  }
+  catch { throw new Error(response.status === 413 ? "Le fichier est trop volumineux pour cet envoi." : `Réponse serveur invalide (code ${response.status}).`); }
+}
 
 function putDraft(photo: File | null, audio: File | null, idea: string, plan: PlanCode, style: string, audioStartSeconds: number) {
   if (!("indexedDB" in window)) return;
@@ -39,7 +68,7 @@ function readDraft(callback: (draft: { photo?: File; audio?: File; idea?: string
 }
 
 export default function SimpleClipCreator() {
-  const { status: sessionStatus } = useSession();
+  const { status: sessionStatus, user, refreshSession } = useSession();
   const [photo, setPhoto] = useState<File | null>(null);
   const [audio, setAudio] = useState<File | null>(null);
   const [idea, setIdea] = useState("");
@@ -61,6 +90,7 @@ export default function SimpleClipCreator() {
   const [paymentReturn, setPaymentReturn] = useState(false);
   const autoConfirmAttempted = useRef(false);
   const actionInFlight = useRef(false);
+  const uploadedFiles = useRef<UploadedClipFiles | null>(null);
   const [resultDetails, setResultDetails] = useState<{ title: string; durationSeconds: number; createdAt: string; downloadUrl: string } | null>(null);
   const photoInput = useRef<HTMLInputElement>(null);
   const audioInput = useRef<HTMLInputElement>(null);
@@ -71,7 +101,7 @@ export default function SimpleClipCreator() {
   useEffect(() => () => { if (audioUrl) URL.revokeObjectURL(audioUrl); }, [audioUrl]);
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      readDraft((draft) => { setPhoto(draft.photo || null); setAudio(draft.audio || null); setIdea(draft.idea || ""); setSelectedPlan(draft.plan || "TIKTOK"); setStyle(draft.style || ""); setAudioStartSeconds(draft.audioStartSeconds || 0); });
+      readDraft((draft) => { setPhoto(draft.photo || null); if (draft.audio) selectAudio(draft.audio); else setAudio(null); setIdea(draft.idea || ""); setSelectedPlan(draft.plan || "TIKTOK"); setStyle(draft.style || ""); setAudioStartSeconds(draft.audioStartSeconds || 0); });
       const search = new URLSearchParams(window.location.search);
       const resume = search.get("resumeProjectId");
       if (resume) {
@@ -87,12 +117,20 @@ export default function SimpleClipCreator() {
   }, []);
 
   const loadQuote = useCallback(async () => {
-    if (!audio) { setQuote(null); setQuoteError(""); return; }
+    if (!audio || !Number.isFinite(audioDuration) || audioDuration <= 0) { setQuote(null); setQuoteError(""); return; }
     try {
-      const form = new FormData(); form.set("audio", audio); form.set("audioStartSeconds", String(audioStartSeconds)); form.set("plan", selectedPlan);
-      const response = await fetch("/api/simple-clips/quote", { method: "POST", body: form, cache: "no-store" });
-      const body = await response.json() as Quote;
-      if (!response.ok) throw new Error((body as unknown as { error?: string }).error);
+      const response = await fetch("/api/simple-clips/quote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ audioDurationSeconds: audioDuration, audioStartSeconds, plan: selectedPlan }),
+        cache: "no-store",
+      });
+      const raw = await response.text();
+      let body: Quote | null = null;
+      try { body = raw ? JSON.parse(raw) as Quote : null; } catch { body = null; }
+      if (!response.ok || !body) {
+        throw new Error((body as unknown as { error?: string } | null)?.error || quoteFailureMessage(response.status, audio.size));
+      }
       setQuote(body);
       setQuoteError("");
       // La formule adaptée est appliquée d’office : l’utilisateur ne choisit jamais
@@ -106,7 +144,7 @@ export default function SimpleClipCreator() {
       setQuote(null);
       setQuoteError(loadError instanceof Error && loadError.message ? loadError.message : "Le prix n’a pas pu être calculé.");
     }
-  }, [audio, audioStartSeconds, selectedPlan]);
+  }, [audio, audioDuration, audioStartSeconds, selectedPlan]);
   useEffect(() => {
     const timer = window.setTimeout(() => void loadQuote(), 0);
     return () => window.clearTimeout(timer);
@@ -118,19 +156,19 @@ export default function SimpleClipCreator() {
     async function poll() {
       try {
         const response = await fetch(`/api/simple-clips/${encodeURIComponent(projectId!)}`, { cache: "no-store" });
-        const body = await response.json() as StatusPayload;
+        const body = await readResponseBody<StatusPayload>(response);
         if (!response.ok) throw new Error(body.error || "Suivi indisponible.");
         if (stopped) return;
         setProgress(body.progress ?? 0); setProgressMessage(body.message);
         if (body.state === "draft") { setResumeQuote(body as Quote); setClipState("draft"); }
-        if (body.state === "completed") { setVideoUrl(body.videoUrl || ""); setResultDetails({ title: body.projectTitle || "Mon clip Rudyo", durationSeconds: body.durationSeconds || 0, createdAt: body.createdAt || new Date().toISOString(), downloadUrl: body.downloadUrl || body.videoUrl || "" }); setClipState("completed"); window.localStorage.removeItem(ACTIVE_PROJECT_KEY); }
-        if (body.state === "failed") { setError(body.message); setClipState("failed"); window.localStorage.removeItem(ACTIVE_PROJECT_KEY); }
+        if (body.state === "completed") { setVideoUrl(body.videoUrl || ""); setResultDetails({ title: body.projectTitle || "Mon clip Rudyo", durationSeconds: body.durationSeconds || 0, createdAt: body.createdAt || new Date().toISOString(), downloadUrl: body.downloadUrl || body.videoUrl || "" }); setClipState("completed"); window.localStorage.removeItem(ACTIVE_PROJECT_KEY); window.dispatchEvent(new Event("rudyo:credits-changed")); }
+        if (body.state === "failed") { setError(body.message); setClipState("failed"); window.localStorage.removeItem(ACTIVE_PROJECT_KEY); window.dispatchEvent(new Event("rudyo:credits-changed")); }
       } catch { if (!stopped) setProgressMessage("Votre clip continue en arrière-plan"); }
     }
     void poll();
     const timer = window.setInterval(() => void poll(), 5000);
     return () => { stopped = true; window.clearInterval(timer); };
-  }, [clipState, projectId]);
+  }, [clipState, projectId, refreshSession]);
 
   useEffect(() => {
     if (!projectId || clipState !== "draft") return;
@@ -138,7 +176,7 @@ export default function SimpleClipCreator() {
     async function loadDraft() {
       try {
         const response = await fetch(`/api/simple-clips/${encodeURIComponent(projectId!)}`, { cache: "no-store" });
-        const body = await response.json() as StatusPayload;
+        const body = await readResponseBody<StatusPayload>(response);
         if (!response.ok || body.state !== "draft") throw new Error(body.error || "Brouillon indisponible.");
         if (!stopped) {
           setResumeQuote(body as Quote);
@@ -163,25 +201,62 @@ export default function SimpleClipCreator() {
   function selectPhoto(file?: File) {
     setError("");
     if (!file || !["image/jpeg", "image/png", "image/webp"].includes(file.type)) return setError("Choisissez une photo JPG, PNG ou WebP valide.");
+    uploadedFiles.current = null;
     setPhoto(file);
   }
   function selectAudio(file?: File) {
     setError("");
     if (!file || !["audio/mpeg", "audio/wav", "audio/x-wav", "audio/mp4"].includes(file.type)) return setError("Choisissez une musique MP3, WAV ou M4A valide.");
+    uploadedFiles.current = null;
     setAudio(file);
+    setAudioDuration(0);
     const url = URL.createObjectURL(file); const element = new Audio(url);
     element.onloadedmetadata = () => { setAudioDuration(element.duration); URL.revokeObjectURL(url); };
+    element.onerror = () => { setQuote(null); setQuoteError("La durée de cette musique n’a pas pu être lue par votre navigateur."); URL.revokeObjectURL(url); };
   }
   function onDrop(event: DragEvent<HTMLDivElement>, kind: "photo" | "audio") {
     event.preventDefault(); const file = event.dataTransfer.files[0];
     if (kind === "photo") selectPhoto(file); else selectAudio(file);
   }
-  function buildClipForm(intent: "generate" | "prepare_only") {
-    const form = new FormData();
-    if (photo) form.set("photo", photo);
-    if (audio) form.set("audio", audio);
-    Object.entries({ plan: selectedPlan, idea, style, audioStartSeconds: String(audioStartSeconds), intent }).forEach(([key, value]) => form.set(key, value));
-    return form;
+  async function uploadSelectedFiles() {
+    if (!photo || !audio || !user) throw new Error("Connectez-vous pour importer vos fichiers.");
+    const existing = uploadedFiles.current;
+    if (existing?.photoFile === photo && existing.audioFile === audio) return existing;
+    const progressByKind = { photo: 0, audio: 0 };
+    const totalBytes = photo.size + audio.size;
+    const updateProgress = (kind: "photo" | "audio", loaded: number) => {
+      progressByKind[kind] = loaded;
+      setProgress(Math.min(28, 4 + Math.round(((progressByKind.photo + progressByKind.audio) / totalBytes) * 24)));
+    };
+    const uploadOne = async (file: File, kind: "photo" | "audio") => {
+      const name = safeUploadName(file.name);
+      const pathname = `rudyo-video-studio/users/${user.id}/simple-clips/assets/${crypto.randomUUID()}/${name}`;
+      return uploadBlob(pathname, file, {
+        access: "private",
+        handleUploadUrl: "/api/simple-clips/uploads",
+        clientPayload: JSON.stringify({ kind, fileName: name }),
+        contentType: file.type,
+        multipart: file.size >= 5 * 1024 * 1024,
+        onUploadProgress: ({ loaded }) => updateProgress(kind, loaded),
+      });
+    };
+    setProgressMessage("Importation sécurisée de vos fichiers");
+    const [photoBlob, audioBlob] = await Promise.all([uploadOne(photo, "photo"), uploadOne(audio, "audio")]);
+    const result = { photoFile: photo, audioFile: audio, photoUrl: photoBlob.url, audioUrl: audioBlob.url };
+    uploadedFiles.current = result;
+    return result;
+  }
+  async function buildClipRequest(intent: "generate" | "prepare_only") {
+    if (!photo || !audio) throw new Error("Ajoutez votre photo et votre musique.");
+    const files = await uploadSelectedFiles();
+    return {
+      body: JSON.stringify({
+        plan: selectedPlan, idea, style, audioStartSeconds, intent,
+        photoBlobUrl: files.photoUrl, audioBlobUrl: files.audioUrl,
+        photoName: photo.name, audioName: audio.name,
+      }),
+      headers: { "Content-Type": "application/json" },
+    };
   }
   async function startMissingCreditsCheckout() {
     if (!photo || !audio || !quote || quote.missingCredits <= 0 || actionInFlight.current) return;
@@ -190,8 +265,9 @@ export default function SimpleClipCreator() {
     setError("");
     putDraft(photo, audio, idea, selectedPlan, style, audioStartSeconds);
     try {
-      const prepare = await fetch("/api/simple-clips", { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: buildClipForm("prepare_only") });
-      const draft = await prepare.json() as { projectId?: string; error?: string };
+      const clipRequest = await buildClipRequest("prepare_only");
+      const prepare = await fetch("/api/simple-clips", { method: "POST", headers: { ...clipRequest.headers, "Idempotency-Key": crypto.randomUUID() }, body: clipRequest.body });
+      const draft = await readResponseBody<{ projectId?: string; error?: string }>(prepare);
       if (!draft.projectId) throw new Error(draft.error || "Le brouillon n’a pas pu être conservé.");
       window.localStorage.setItem(ACTIVE_PROJECT_KEY, draft.projectId);
       const checkout = await fetch("/api/stripe/checkout", {
@@ -220,49 +296,66 @@ export default function SimpleClipCreator() {
     if (!quote.workerAvailable) return setError("Le service de création est momentanément indisponible. Aucun crédit ne sera débité.");
     if (quote.refusalCode === "INSUFFICIENT_CREDITS") { void startMissingCreditsCheckout(); return; }
     if (!quote.allowed) return setError("Cette formule est temporairement indisponible.");
-    upload();
+    void upload();
   }
-  function upload() {
-    if (!photo || !audio || !quote?.allowed || actionInFlight.current) return;
+  function prepareScenarioOnly() {
+    setError("");
+    if (!photo || !audio || idea.trim().length < 10 || !quote?.supported || !quote.fitsSelectedPlan) return setError("Complétez la photo, la musique, l’idée et la formule avant de préparer le scénario.");
+    if (sessionStatus !== "authenticated") return setAuthPrompt(true);
+    putDraft(photo, audio, idea, selectedPlan, style, audioStartSeconds);
+    void upload("prepare_only");
+  }
+  async function upload(intent: "generate" | "prepare_only" = "generate") {
+    if (!photo || !audio || !quote?.supported || !quote.fitsSelectedPlan || (intent === "generate" && !quote.allowed) || actionInFlight.current) return;
     actionInFlight.current = true;
     setClipState("processing"); setProgress(4); setProgressMessage("Préparation de votre projet");
-    const form = buildClipForm("generate");
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", "/api/simple-clips"); xhr.setRequestHeader("Idempotency-Key", crypto.randomUUID());
-    xhr.upload.onprogress = (event) => { if (event.lengthComputable) setProgress(Math.min(28, Math.round(event.loaded / event.total * 28))); };
-    xhr.onload = () => {
-      const body = JSON.parse(xhr.responseText || "{}") as { projectId?: string; error?: string };
-      if (xhr.status < 200 || xhr.status >= 300 || !body.projectId) {
+    try {
+      const clipRequest = await buildClipRequest(intent);
+      const response = await fetch("/api/simple-clips", {
+        method: "POST",
+        headers: { ...clipRequest.headers, "Idempotency-Key": crypto.randomUUID() },
+        body: clipRequest.body,
+      });
+      const body = await readResponseBody<(Partial<Quote> & { projectId?: string; error?: string; state?: string })>(response);
+      if (!response.ok || !body.projectId) {
         if (body.projectId) {
           setProjectId(body.projectId);
           window.localStorage.setItem(ACTIVE_PROJECT_KEY, body.projectId);
           setError(body.error || "Votre brouillon est conservé. Réessayez lorsque le service sera disponible.");
           setClipState("draft");
-          actionInFlight.current = false;
           return;
         }
-        setError(body.error || "La création n’a pas pu démarrer."); setClipState("failed"); actionInFlight.current = false; return;
+        throw new Error(body.error || "La création n’a pas pu démarrer.");
       }
-      // La requête est terminée : le verrou anti-double-clic doit retomber,
-      // sinon plus aucune action ultérieure (dont la relance) ne peut partir.
-      actionInFlight.current = false;
+      if (body.state === "draft") {
+        setProjectId(body.projectId);
+        setResumeQuote(body as Quote);
+        window.localStorage.setItem(ACTIVE_PROJECT_KEY, body.projectId);
+        setClipState("draft");
+        return;
+      }
       setProjectId(body.projectId); window.localStorage.setItem(ACTIVE_PROJECT_KEY, body.projectId); setProgress(34); setProgressMessage("Préparation de votre scénario");
-    };
-    xhr.onerror = () => { setError("L’envoi a été interrompu. Vous pouvez recommencer."); setClipState("failed"); actionInFlight.current = false; };
-    xhr.send(form);
+      await refreshSession();
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : "L’envoi a été interrompu. Vous pouvez recommencer.");
+      setClipState("failed");
+    } finally {
+      actionInFlight.current = false;
+    }
   }
   async function confirmResumedDraft() {
     if (!projectId || !resumeQuote?.allowed) return;
     setError("");
     try {
       const response = await fetch(`/api/simple-clips/${encodeURIComponent(projectId)}/confirm`, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() } });
-      const body = await response.json() as { error?: string };
+      const body = await readResponseBody<{ error?: string }>(response);
       if (!response.ok) throw new Error(body.error || "La génération n’a pas pu démarrer.");
       window.localStorage.setItem(ACTIVE_PROJECT_KEY, projectId);
       setPaymentReturn(false);
       setClipState("processing");
       setProgress(5);
       setProgressMessage("Préparation de votre scénario");
+      await refreshSession();
     } catch (confirmError) {
       setError(confirmError instanceof Error ? confirmError.message : "La génération n’a pas pu démarrer.");
     }
@@ -295,7 +388,7 @@ export default function SimpleClipCreator() {
     setError("");
     try {
       const response = await fetch(`/api/simple-clips/${encodeURIComponent(projectId)}/retry`, { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() } });
-      const body = await response.json() as { error?: string };
+      const body = await readResponseBody<{ error?: string }>(response);
       if (!response.ok) throw new Error(body.error || "La relance n’a pas pu démarrer.");
       window.localStorage.setItem(ACTIVE_PROJECT_KEY, projectId);
       setProgress(5);
@@ -307,7 +400,7 @@ export default function SimpleClipCreator() {
       actionInFlight.current = false;
     }
   }
-  function reset() { window.localStorage.removeItem(ACTIVE_PROJECT_KEY); setClipState("form"); setProgress(0); setProjectId(null); setVideoUrl(""); setResultDetails(null); setError(""); }
+  function reset() { window.localStorage.removeItem(ACTIVE_PROJECT_KEY); uploadedFiles.current = null; setClipState("form"); setProgress(0); setProjectId(null); setVideoUrl(""); setResultDetails(null); setError(""); }
   const formComplete = Boolean(photo && audio && idea.trim().length >= 10);
   // Un seul module tarifaire décide du libellé, du montant et du surcrédit Stripe.
   // Visiteur non connecté : on annonce le prix réel, la connexion est demandée ensuite.
@@ -337,11 +430,11 @@ export default function SimpleClipCreator() {
       <div><p className="text-sm font-black uppercase tracking-[0.2em] text-cyan-300">Étape 2</p><h2 className="mt-2 text-2xl font-black">Ajoutez les éléments de votre clip</h2></div>
       <UploadCard number="1" title="Ma photo" subtitle="Ajoutez une photo nette de l’artiste" icon={ImagePlus} onDrop={(event) => onDrop(event, "photo")}>
         <input ref={photoInput} type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(event: ChangeEvent<HTMLInputElement>) => selectPhoto(event.target.files?.[0])} />
-        {photo && photoUrl ? <div className="flex items-center gap-4"><div className="relative h-24 w-24 overflow-hidden rounded-2xl"><Image src={photoUrl} alt="Aperçu de l’artiste" fill sizes="96px" className="object-cover" unoptimized /></div><FileActions name={photo.name} onReplace={() => photoInput.current?.click()} onDelete={() => setPhoto(null)} /></div> : <EmptyUpload onClick={() => photoInput.current?.click()} label="Choisir ou déposer une photo" formats="JPG, PNG ou WebP" />}
+        {photo && photoUrl ? <div className="flex items-center gap-4"><div className="relative h-24 w-24 overflow-hidden rounded-2xl"><Image src={photoUrl} alt="Aperçu de l’artiste" fill sizes="96px" className="object-cover" unoptimized /></div><FileActions name={photo.name} onReplace={() => photoInput.current?.click()} onDelete={() => { uploadedFiles.current = null; setPhoto(null); }} /></div> : <EmptyUpload onClick={() => photoInput.current?.click()} label="Choisir ou déposer une photo" formats="JPG, PNG ou WebP" />}
       </UploadCard>
       <UploadCard number="2" title="Ma musique" subtitle="Ajoutez votre chanson" icon={Music2} onDrop={(event) => onDrop(event, "audio")}>
         <input ref={audioInput} type="file" accept="audio/mpeg,audio/wav,audio/x-wav,audio/mp4,.m4a" className="sr-only" onChange={(event: ChangeEvent<HTMLInputElement>) => selectAudio(event.target.files?.[0])} />
-        {audio ? <div><FileActions name={`${audio.name}${quote ? ` · ${Math.floor(quote.normalizedSeconds / 60)}:${String(quote.normalizedSeconds % 60).padStart(2, "0")}` : ""}`} onReplace={() => audioInput.current?.click()} onDelete={() => { setAudio(null); setAudioDuration(0); }} /><audio controls preload="metadata" src={audioUrl} className="mt-4 h-10 w-full" /></div> : <EmptyUpload onClick={() => audioInput.current?.click()} label="Choisir ou déposer une chanson" formats="MP3, WAV ou M4A" />}
+        {audio ? <div><FileActions name={`${audio.name}${quote ? ` · ${Math.floor(quote.normalizedSeconds / 60)}:${String(quote.normalizedSeconds % 60).padStart(2, "0")}` : ""}`} onReplace={() => audioInput.current?.click()} onDelete={() => { uploadedFiles.current = null; setAudio(null); setAudioDuration(0); }} /><audio controls preload="metadata" src={audioUrl} className="mt-4 h-10 w-full" /></div> : <EmptyUpload onClick={() => audioInput.current?.click()} label="Choisir ou déposer une chanson" formats="MP3, WAV ou M4A" />}
       </UploadCard>
       <div className="rounded-3xl border border-slate-800 bg-slate-900/70 p-5 sm:p-7"><Heading number="3" title="Mon idée de clip" subtitle="Une phrase suffit" /><textarea value={idea} onChange={(event) => setIdea(event.target.value)} placeholder={example} maxLength={3000} rows={6} className="mt-5 w-full resize-y rounded-2xl border border-slate-700 bg-slate-950 p-4 leading-7 outline-none placeholder:text-slate-600 focus:border-cyan-300" /><div className="mt-4 flex flex-wrap gap-2">{suggestions.map((item) => <button key={item} type="button" onClick={() => setIdea((value) => `${value.trim()}${value.trim() ? " " : ""}Style ${item.toLowerCase()}.`)} className="rounded-full border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:border-cyan-400">+ {item}</button>)}</div></div>
       <details className="group rounded-2xl border border-slate-800 bg-slate-950 p-5"><summary className="flex cursor-pointer list-none items-center justify-between font-bold text-slate-300">Options avancées <ChevronDown className="transition group-open:rotate-180" size={18} /></summary><div className="mt-5 grid gap-5 sm:grid-cols-2"><label className="text-sm font-bold text-slate-300">Style visuel<input value={style} onChange={(event) => setStyle(event.target.value)} placeholder="Ex. lumière dorée" maxLength={120} className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-900 p-3 font-normal text-white" /></label><label className="text-sm font-bold text-slate-300">Début de l’extrait (secondes)<input type="number" min="0" max={Math.max(0, Math.floor(audioDuration - 1))} value={audioStartSeconds} onChange={(event) => setAudioStartSeconds(Math.max(0, Number(event.target.value) || 0))} className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-900 p-3 font-normal text-white" /></label></div></details>
@@ -360,6 +453,7 @@ export default function SimpleClipCreator() {
       </> : <p role="alert" className="font-black text-amber-100">Votre musique dure {quote.normalizedSeconds} secondes et dépasse la durée maximale automatique de 7 minutes (420 secondes). Aucun paiement n’est possible pour cette durée.</p>}</div> : null}
       {error ? <p role="alert" className="rounded-2xl border border-rose-500/40 bg-rose-950/30 p-4 text-sm text-rose-100">{error}</p> : null}
       <button data-testid="clip-primary-action" type="button" onClick={prepareGeneration} disabled={!formComplete || !quote?.supported || checkoutLoading || (!quote.allowed && quote.refusalCode !== "INSUFFICIENT_CREDITS")} className="flex w-full items-center justify-center gap-3 rounded-2xl bg-cyan-300 px-6 py-5 text-lg font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"><WandSparkles /> {checkoutLoading ? "Conservation du projet…" : callToAction ? callToAction.label : !audio ? "Ajoutez votre musique pour connaître le prix" : quoteError ? "Prix indisponible — recalculez ci-dessus" : "Calcul du prix en cours…"}</button>
+      {formComplete && quote?.supported && quote.fitsSelectedPlan && !quote.allowed && quote.refusalCode !== "INSUFFICIENT_CREDITS" ? <button type="button" onClick={prepareScenarioOnly} className="w-full rounded-2xl border border-cyan-300/50 px-6 py-4 font-black text-cyan-100">Préparer le scénario sans lancer Seedance</button> : null}
       {quote?.workerState === "STARTING" ? <p className="rounded-2xl border border-cyan-400/30 bg-cyan-950/20 p-4 text-center text-cyan-100">Démarrage du service de création…</p> : null}
       {quote?.refusalCode === "WORKER_UNAVAILABLE" ? <div className="rounded-2xl border border-amber-400/30 bg-amber-950/20 p-4 text-center text-amber-200"><p>La création est temporairement indisponible. Aucun crédit ne sera débité.</p><button type="button" onClick={() => void loadQuote()} className="mt-3 rounded-xl border border-amber-300/50 px-4 py-2 font-black">Réessayer</button></div> : null}
       <p className="text-center text-xs text-slate-500">En lançant la création, vous confirmez disposer des droits sur la photo et la musique importées.</p>
@@ -385,11 +479,12 @@ function DraftResumeScreen({ quote, paymentReturn, checkoutLoading, error, onCon
   return <section className="mx-auto grid min-h-[80vh] max-w-3xl place-items-center px-5 pt-20 text-center"><div className="w-full rounded-[2rem] border border-cyan-400/30 bg-slate-950/90 p-8 sm:p-12">
     {!quote || waitingForWebhook ? <Loader2 className="mx-auto animate-spin text-cyan-300" size={44} /> : <Check className="mx-auto text-emerald-300" size={48} />}
     <h1 className="mt-6 text-3xl font-black sm:text-5xl">{waitingForWebhook ? "Confirmation sécurisée du paiement" : "Votre projet est prêt à reprendre"}</h1>
-    {quote ? <><p className="mt-5 text-lg text-slate-200">{quote.planName} · {quote.normalizedSeconds} secondes · {quote.totalCredits.toLocaleString("fr-FR")} crédits</p><p className="mt-3 text-slate-300">{quote.missingCredits > 0 ? `Il manque encore ${quote.missingCredits.toLocaleString("fr-FR")} crédits. Le webhook Stripe peut prendre quelques secondes.` : "Vos crédits ont été ajoutés. Vous pouvez maintenant générer votre clip."}</p></> : <p className="mt-5 text-slate-300">Chargement de votre brouillon privé…</p>}
+    {quote ? <><p className="mt-5 text-lg text-slate-200">{quote.planName} · {quote.normalizedSeconds} secondes · {quote.totalCredits.toLocaleString("fr-FR")} crédits</p><p className="mt-3 text-slate-300">{quote.missingCredits > 0 ? `Il manque encore ${quote.missingCredits.toLocaleString("fr-FR")} crédits. Le webhook Stripe peut prendre quelques secondes.` : quote.allowed ? "Vos crédits sont disponibles. Vous pouvez maintenant générer votre clip." : "Le scénario est conservé, mais aucune génération ni aucun débit ne sont autorisés pour le moment."}</p></> : <p className="mt-5 text-slate-300">Chargement de votre brouillon privé…</p>}
     {error ? <p role="alert" className="mt-5 rounded-2xl border border-rose-500/40 bg-rose-950/30 p-4 text-rose-100">{error}</p> : null}
     {quote?.allowed ? <button type="button" onClick={onConfirm} className="mt-8 w-full rounded-2xl bg-cyan-300 px-6 py-5 text-lg font-black text-slate-950">Confirmer et générer mon clip</button> : null}
     {quote && quote.missingCredits > 0 && !waitingForWebhook ? <button type="button" onClick={onBuy} disabled={checkoutLoading} className="mt-8 w-full rounded-2xl bg-cyan-300 px-6 py-5 text-lg font-black text-slate-950 disabled:opacity-50">{checkoutLoading ? "Ouverture du paiement…" : `Acheter ${quote.missingCredits.toLocaleString("fr-FR")} crédits — ${quote.missingPriceEur.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} €`}</button> : null}
     {quote && !quote.workerAvailable ? <p className="mt-5 text-amber-200">Le worker est indisponible. Votre projet reste conservé et aucun crédit ne sera débité.</p> : null}
+    <Link href="/creations" className="mt-6 inline-block font-bold text-cyan-200 underline">Voir le scénario dans Mes créations</Link>
     <p className="mt-5 text-xs text-slate-500">Aucune génération n’est lancée sans cette confirmation finale.</p>
   </div></section>;
 }

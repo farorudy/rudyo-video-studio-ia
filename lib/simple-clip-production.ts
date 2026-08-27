@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { dispatchRailwayClipJob } from "@/lib/montage/worker-client";
 import { getMontageServiceStatus } from "@/lib/montage/worker-status";
 import { PaidGenerationUnavailableError } from "@/lib/montage/paid-generation-error";
-import { buildTikTokScenes, CLIP_OFFER, getClipEconomics, quoteClip } from "@/lib/tiktok-offer";
+import { CLIP_OFFER, getClipEconomics, quoteClip, validateClipScenario } from "@/lib/tiktok-offer";
 import { type AutomaticClipPlanCode } from "@/lib/clip-pricing";
 
 export async function startPreparedSimpleClip(options: { projectId: string; userId: string }) {
@@ -15,6 +15,7 @@ export async function startPreparedSimpleClip(options: { projectId: string; user
     where: { id: options.projectId, userId: options.userId },
     include: {
       mediaAssets: true,
+      scenes: { orderBy: { order: "asc" } },
       generationTasks: { orderBy: { createdAt: "asc" } },
       clipWorkerJobs: { orderBy: { createdAt: "desc" }, take: 1 },
     },
@@ -36,6 +37,17 @@ export async function startPreparedSimpleClip(options: { projectId: string; user
   if (!quote.fitsSelectedPlan) throw new Error("PLAN_TOO_SHORT");
   const economics = getClipEconomics(quote.normalizedSeconds, selectedPlan);
   if (!economics.enabled) throw new Error("OFFER_PAUSED");
+  validateClipScenario(project.scenes, quote.normalizedSeconds);
+  const portrait = project.mediaAssets.find((asset) => asset.type === "ARTIST_PORTRAIT");
+  if (!portrait) throw new Error("Photo du projet introuvable.");
+  const audio = project.mediaAssets.find((asset) => asset.type === "AUDIO");
+  if (!audio) throw new Error("Musique du projet introuvable.");
+  const portraitMetadata = portrait.metadata && typeof portrait.metadata === "object" && !Array.isArray(portrait.metadata)
+    ? portrait.metadata as Record<string, unknown>
+    : {};
+  const providerAssetId = typeof portraitMetadata.bytePlusAssetId === "string" ? portraitMetadata.bytePlusAssetId.trim() : "";
+  const referenceAssetUri = providerAssetId.startsWith("asset://") ? providerAssetId : providerAssetId ? `asset://${providerAssetId}` : null;
+  if (process.env.WORKER_EXPECTED_MODE === "seedance" && !referenceAssetUri) throw new Error("BYTEPLUS_REFERENCE_ASSET_REQUIRED");
 
   // Verrou de facturation, placé avant toute réservation : un worker de
   // démonstration ne doit jamais pouvoir débiter un client réel.
@@ -77,31 +89,12 @@ export async function startPreparedSimpleClip(options: { projectId: string; user
       },
     });
 
-    const portrait = project.mediaAssets.find((asset) => asset.type === "ARTIST_PORTRAIT");
-    if (!portrait) throw new Error("Photo du projet introuvable.");
-    const modelId = process.env.TIKTOK_SEEDANCE_MODEL_ID || "dreamina-seedance-2-0-mini-260615";
-    const scenes = buildTikTokScenes(quote.normalizedSeconds, project.summary || "", project.visualStyle || undefined);
-    await prisma.storyboardScene.createMany({
-      data: scenes.map((scene) => ({
-        ...scene,
-        projectId: project.id,
-        modelId,
-        resolution: CLIP_OFFER.generationResolution,
-        ratio: CLIP_OFFER.ratio,
-        generateAudio: false,
-        watermark: false,
-        status: "READY" as const,
-      })),
-      skipDuplicates: true,
-    });
-    const audio = project.mediaAssets.find((asset) => asset.type === "AUDIO");
-    if (!audio) throw new Error("Musique du projet introuvable.");
     const finalExportId = randomUUID();
     const workerJobId = randomUUID();
     const generationId = randomUUID();
     const outputPath = `users/${options.userId}/projects/${project.id}/generations/${generationId}/final/clip.mp4`;
     const workerJob = await prisma.$transaction(async (tx) => {
-      await tx.finalExport.create({ data: { id: finalExportId, projectId: project.id, status: FinalExportStatus.QUEUED, format: CLIP_OFFER.ratio, resolution: "1080p", settings: { railway: true, mockAllowedOnly: true } } });
+      await tx.finalExport.create({ data: { id: finalExportId, projectId: project.id, status: FinalExportStatus.QUEUED, format: CLIP_OFFER.ratio, resolution: "1080p", settings: { railway: true, provider: "byteplus-seedance", exactDurationRequired: true } } });
       const job = await tx.clipWorkerJob.create({
         data: {
           id: workerJobId,
@@ -120,6 +113,8 @@ export async function startPreparedSimpleClip(options: { projectId: string; user
             audioStorageKey: audio.storageKey,
             audioStartSeconds: project.audioStartSeconds,
             durationSeconds: quote.normalizedSeconds,
+            referenceAssetUri,
+            scenes: project.scenes.map((scene) => ({ id: scene.id, order: scene.order, title: scene.title, prompt: scene.prompt, durationSeconds: scene.durationSeconds, modelId: scene.modelId || "dreamina-seedance-2-0-260128", resolution: scene.resolution, ratio: scene.ratio })),
             outputStorageKey: outputPath,
             plan: quote.plan,
             creditReservationId: reservation.id,

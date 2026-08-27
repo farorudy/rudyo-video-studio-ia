@@ -53,7 +53,17 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const timer = window.setTimeout(() => void refreshSession(), 0);
-    return () => window.clearTimeout(timer);
+    const refresh = () => void refreshSession();
+    const onVisibility = () => { if (document.visibilityState === "visible") refresh(); };
+    window.addEventListener("focus", refresh);
+    window.addEventListener("rudyo:credits-changed", refresh);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("rudyo:credits-changed", refresh);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [refreshSession]);
 
   const value = useMemo(

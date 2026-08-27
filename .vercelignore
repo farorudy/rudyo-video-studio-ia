@@ -11,5 +11,8 @@ node_modules
 *.tsbuildinfo
 
 media/export
+media/exports
 media/generated
 media/uploads
+media/users
+media/local-*

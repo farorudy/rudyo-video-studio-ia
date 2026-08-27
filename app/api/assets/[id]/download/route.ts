@@ -2,8 +2,9 @@ import path from "node:path";
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { verifyDownloadSignature } from "@/lib/media-access";
+import { parseSingleByteRange, RangeNotSatisfiableError } from "@/lib/http-range";
 import { prisma } from "@/lib/prisma";
-import { openStorageStream, storageKeyFromClientRef } from "@/lib/storage";
+import { getStorageSize, openStorageRange, openStorageStream, storageKeyFromClientRef } from "@/lib/storage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,6 +29,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   let storageKey = asset?.storageKey || null;
   let mimeType = asset?.mimeType || "application/octet-stream";
   let fileName = asset ? `rudyo-${asset.project.title}-${asset.fileName}` : "";
+  let durationSeconds: number | null = null;
 
   if (!asset) {
     const task = await prisma.generationTask.findUnique({
@@ -45,13 +47,14 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   }
 
   if (!ownerId) {
-    const finalExport = await prisma.finalExport.findUnique({ where: { id }, include: { project: { select: { userId: true, title: true, source: true, createdAt: true } } } });
+    const finalExport = await prisma.finalExport.findUnique({ where: { id }, include: { project: { select: { userId: true, title: true, source: true, createdAt: true, durationSeconds: true, billedDurationSeconds: true } } } });
     if (finalExport) {
       if (finalExport.status !== "COMPLETED") return NextResponse.json({ error: "Le résultat est encore en cours de génération." }, { status: 409 });
       ownerId = finalExport.project.userId;
       storageKey = finalExport.storageKey || storageKeyFromClientRef(finalExport.url);
       mimeType = "video/mp4";
-      fileName = `rudyo-${finalExport.project.title}-${finalExport.project.createdAt.getUTCFullYear()}.mp4`;
+      durationSeconds = finalExport.project.billedDurationSeconds || finalExport.project.durationSeconds;
+      fileName = `rudyo-clip-${durationSeconds || 0}s.mp4`;
       systemTest = finalExport.project.source === "SYSTEM_TEST";
     }
   }
@@ -61,7 +64,15 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   if (!signed && ownerId !== user!.id) return NextResponse.json({ error: "Ce résultat ne vous appartient pas." }, { status: 403 });
   if (!storageKey) return NextResponse.json({ error: "Le fichier demandé n’est plus disponible." }, { status: 404 });
 
-    const stored = await openStorageStream(storageKey);
+    const totalSize = await getStorageSize(storageKey);
+    if (totalSize === null) return NextResponse.json({ error: "Le fichier demandé n’est plus disponible." }, { status: 404 });
+    let range: { start: number; end: number } | null;
+    try { range = parseSingleByteRange(request.headers.get("range"), totalSize); }
+    catch (error) {
+      if (error instanceof RangeNotSatisfiableError) return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${totalSize}`, "Accept-Ranges": "bytes" } });
+      throw error;
+    }
+    const stored = range ? await openStorageRange(storageKey, range.start, range.end) : await openStorageStream(storageKey);
     if (!stored) return NextResponse.json({ error: "Le fichier demandé n’est plus disponible." }, { status: 404 });
     const cleanName = cleanDownloadName(fileName);
     const headers = new Headers({
@@ -69,9 +80,11 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       "Content-Disposition": `${request.nextUrl.searchParams.get("preview") === "1" ? "inline" : "attachment"}; filename="${cleanName}"; filename*=UTF-8''${encodeURIComponent(cleanName)}`,
       "Cache-Control": "private, no-store",
       "X-Content-Type-Options": "nosniff",
+      "Accept-Ranges": "bytes",
     });
-    if (stored.size !== undefined) headers.set("Content-Length", String(stored.size));
-    return new Response(stored.stream, { headers });
+    headers.set("Content-Length", String(stored.contentLength ?? stored.size ?? totalSize));
+    if (range) headers.set("Content-Range", `bytes ${range.start}-${range.end}/${totalSize}`);
+    return new Response(stored.stream, { status: range ? 206 : 200, headers });
   } catch (error) {
     console.error("Result download failed", error instanceof Error ? error.message : error);
     return NextResponse.json({ error: "Téléchargement impossible pour le moment." }, { status: 500 });

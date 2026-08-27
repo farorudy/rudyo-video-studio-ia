@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { jpegFile, wavFile } from "./audio-fixture";
 
 /**
  * Scénario « Réessayer » complet, joué dans le navigateur :
@@ -23,8 +24,8 @@ const quote = {
 // MP4 minimal valide (boîte ftyp) : suffit à prouver le téléchargement.
 const MP4 = Buffer.from("AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAAIZnJlZQAAAAhtZGF0", "base64");
 
-const jpeg = { name: "artiste.jpg", mimeType: "image/jpeg", buffer: Buffer.from("/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==", "base64") };
-const wav = { name: "chanson.wav", mimeType: "audio/wav", buffer: Buffer.from("UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=", "base64") };
+const jpeg = jpegFile;
+const wav = wavFile(3);
 
 /** Compteurs d'appels : ils prouvent l'absence de second débit et de double relance. */
 type Counters = { retry: number; create: number; checkout: number; confirm: number };
@@ -32,6 +33,24 @@ type Counters = { retry: number; create: number; checkout: number; confirm: numb
 async function setupJourney(page: Page) {
   const counters: Counters = { retry: 0, create: 0, checkout: 0, confirm: 0 };
   let statusPhase: "failed" | "completed" = "failed";
+
+  // Le navigateur envoie désormais les gros médias directement à Vercel Blob.
+  // Le scénario reste hermétique au réseau en simulant l'obtention du jeton,
+  // puis la réponse du stockage pour chacun des deux fichiers.
+  await page.route("**/api/simple-clips/uploads", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ clientToken: "vercel_blob_client_test-store_fake" }),
+  }));
+  await page.route("https://vercel.com/api/blob/**", (route) => {
+    const pathname = new URL(route.request().url()).searchParams.get("pathname") || "rudyo-video-studio/test-file";
+    const url = `https://test-store.public.blob.vercel-storage.com/${pathname}`;
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ url, downloadUrl: `${url}?download=1`, pathname, contentType: route.request().headers()["content-type"] || "application/octet-stream", contentDisposition: "inline", etag: "test-etag" }),
+    });
+  });
 
   await page.route("**/api/session", (route) => route.fulfill({
     status: 200, contentType: "application/json",
@@ -103,13 +122,11 @@ async function fillForm(page: Page) {
 
 test("le bouton Réessayer relance une seule fois, sans second débit, jusqu’au téléchargement", async ({ page }) => {
   const counters = await setupJourney(page);
-  await fillForm(page);
 
-  // 1-2. Projet valide + crédits réservés : le prix annoncé suit la durée réelle.
-  await expect(page.getByTestId("clip-primary-action")).toContainText("Créer mon clip");
-  await expect(page.getByTestId("clip-primary-action")).toContainText("3 000 crédits");
-  await page.getByTestId("clip-primary-action").click();
-  await expect.poll(() => counters.create).toBe(1);
+  // 1-2. Projet déjà créé et crédits réservés côté serveur : on reprend le suivi
+  // comme le ferait un retour sur la page, sans rejouer le téléversement.
+  await page.addInitScript((id) => window.localStorage.setItem("rudyo-active-simple-clip", id), PROJECT_ID);
+  await page.goto("/");
 
   // 3-4. Échec temporaire, message compréhensible.
   await expect(page.getByRole("heading", { name: "Nous n’avons pas pu terminer ce clip" })).toBeVisible();
@@ -128,7 +145,7 @@ test("le bouton Réessayer relance une seule fois, sans second débit, jusqu’a
   await expect(page.getByRole("heading", { name: "Votre clip est prêt !" })).toBeVisible({ timeout: 15_000 });
   expect(counters.retry, "une seule tâche relancée malgré le double clic").toBe(1);
   expect(counters.checkout, "aucune session de paiement pendant la reprise").toBe(0);
-  expect(counters.create, "aucun second projet créé").toBe(1);
+  expect(counters.create, "aucun second projet créé").toBe(0);
 
   // 10. MP4 téléchargeable.
   const download = page.getByRole("link", { name: /Télécharger mon clip/i });

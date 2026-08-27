@@ -41,7 +41,13 @@ export async function POST(request: NextRequest) {
     const [user, worker] = await Promise.all([getCurrentUser(request), getMontageServiceStatus()]);
     const plan = selectedPlan as AutomaticClipPlanCode;
     const quote = quoteClip(durationSeconds, start, plan), economics = getClipEconomics(quote.billableDurationSeconds, plan), balance = user && !user.localSession ? user.creditsRemaining : null;
-    return NextResponse.json({ success: true, ...quote, ...getClipAuthorization(quote.totalCredits, balance, worker.available, economics.enabled, quote.supported, quote.fitsSelectedPlan), workerState: worker.state, workerWaking: worker.waking, balance, codec, sampleRate, channels, maxSupportedSeconds: CLIP_OFFER.maxDurationSeconds, economics: { enabled: economics.enabled, marginEur: economics.marginEur } }, { headers: { "Cache-Control": "private, no-store" } });
+    return NextResponse.json({ success: true, ...quote, ...getClipAuthorization(quote.totalCredits, balance, worker.available, economics.enabled, quote.supported, quote.fitsSelectedPlan), workerState: worker.state, workerWaking: worker.waking, balance, codec, sampleRate, channels, maxSupportedSeconds: CLIP_OFFER.maxDurationSeconds,
+      // État réel de la porte de facturation : « joignable » ne vaut pas « facturable ».
+      paidGenerationAllowed: worker.paidGenerationAllowed,
+      paidGenerationRefusal: worker.paidGenerationRefusal,
+      workerMode: worker.workerMode,
+      providerReady: worker.providerReady,
+      economics: { enabled: economics.enabled, marginEur: economics.marginEur } }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     console.error("Automatic clip quote failed", error instanceof Error ? error.message : error);
     return NextResponse.json({ error: "La durée de la musique n’a pas pu être vérifiée." }, { status: 400 });

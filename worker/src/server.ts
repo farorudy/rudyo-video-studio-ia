@@ -71,7 +71,20 @@ export function startHealthServer(onJob: (jobId: string) => void) {
         checkStorage().then(() => { checks.storage = true; }).catch(() => undefined),
       ]);
       const ok = Object.values(checks).every(Boolean);
-      json(response, ok ? 200 : 503, { ok, mode: config.mockMode ? "mock" : "byteplus", region: process.env.RAILWAY_REPLICA_REGION || "unknown" });
+      // Le mode est explicite et non devinable : « mock » ne doit jamais
+      // autoriser un débit, quel que soit l'état des autres contrôles.
+      const mode: "mock" | "seedance" = config.mockMode ? "mock" : "seedance";
+      const providerReady = mode === "seedance" && Boolean(config.arkApiKey);
+      json(response, ok ? 200 : 503, {
+        status: ok ? "ok" : "degraded",
+        ok,
+        mode,
+        providerReady,
+        ffmpegReady: checks.ffmpeg,
+        databaseReady: checks.database,
+        storageReady: checks.storage,
+        region: process.env.RAILWAY_REPLICA_REGION || "unknown",
+      });
       return;
     }
     if (request.method !== "POST" || request.url !== "/jobs") { json(response, 404, { ok: false }); return; }

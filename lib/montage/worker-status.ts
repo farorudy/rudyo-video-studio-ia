@@ -3,6 +3,7 @@ import "server-only";
 import { WorkerHealthStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { checkRailwayWorkerHealth } from "@/lib/montage/worker-client";
+import { canStartPaidGeneration } from "@/lib/montage/paid-generation-gate";
 
 function positiveInteger(value: string | undefined, fallback: number) {
   const parsed = Number.parseInt(value || "", 10);
@@ -22,9 +23,16 @@ export async function getMontageServiceStatus() {
   const latest = workers[0] || null;
   const configuredHealthy = railway.reachable || Boolean(healthy);
   const state = configuredHealthy ? "ONLINE" : railway.configured ? "STARTING" : recent.length > 0 ? "DEGRADED" : "OFFLINE";
+  // Incident du 27 août 2026 : `available` valait true dès que les variables
+  // étaient renseignées, ce qui a laissé facturer des tâches servies par un
+  // worker de démonstration. La disponibilité exige désormais une preuve.
+  const paid = canStartPaidGeneration(railway.health);
   return {
-    // Un service Railway Serverless configuré peut dormir : le premier POST /jobs le réveille.
-    available: configuredHealthy || railway.configured,
+    available: configuredHealthy,
+    paidGenerationAllowed: paid.allowed,
+    paidGenerationRefusal: paid.allowed ? null : paid.refusal,
+    workerMode: railway.health.mode,
+    providerReady: railway.health.providerReady,
     state,
     waking: railway.waking,
     configured: railway.configured,

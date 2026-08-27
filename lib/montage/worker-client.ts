@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createHmac, randomUUID } from "node:crypto";
+import type { WorkerHealth } from "@/lib/montage/paid-generation-gate";
 
 const REQUEST_TIMEOUT_MS = 5_000;
 
@@ -35,19 +36,37 @@ async function request(pathname: string, init: RequestInit, timeoutMs = REQUEST_
   });
 }
 
-export async function checkRailwayWorkerHealth() {
+const UNREADY: WorkerHealth = { reachable: false, mode: null, providerReady: false, ffmpegReady: false, databaseReady: false, storageReady: false };
+
+/**
+ * Le corps de /health est lu et rapporté tel quel. Un worker joignable ne
+ * suffit pas : c'est `mode` et les indicateurs de disponibilité qui décident
+ * ensuite d'un débit, via canStartPaidGeneration().
+ */
+export async function checkRailwayWorkerHealth(): Promise<{ configured: boolean; reachable: boolean; waking: boolean; health: WorkerHealth }> {
   const { configured } = workerConfig();
-  if (!configured) return { configured: false, reachable: false, waking: false };
+  if (!configured) return { configured: false, reachable: false, waking: false, health: UNREADY };
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const response = await request("/health", { method: "GET" }, attempt === 0 ? 3_500 : 5_000);
-      if (response.ok) return { configured: true, reachable: true, waking: false };
+      if (response.ok) {
+        const body = await response.json().catch(() => ({})) as Partial<WorkerHealth> & { mode?: string };
+        const health: WorkerHealth = {
+          reachable: true,
+          mode: body.mode === "seedance" ? "seedance" : body.mode === "mock" ? "mock" : null,
+          providerReady: body.providerReady === true,
+          ffmpegReady: body.ffmpegReady === true,
+          databaseReady: body.databaseReady === true,
+          storageReady: body.storageReady === true,
+        };
+        return { configured: true, reachable: true, waking: false, health };
+      }
     } catch {
       // Railway Serverless peut nécessiter un premier appel de réveil.
     }
     if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 750));
   }
-  return { configured: true, reachable: false, waking: true };
+  return { configured: true, reachable: false, waking: true, health: UNREADY };
 }
 
 export async function dispatchRailwayClipJob(jobId: string) {

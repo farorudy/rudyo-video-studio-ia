@@ -369,6 +369,20 @@ export async function retryOrFailClipJob(job: ClipWorkerJob, manifest: ClipWorke
     await appendClipEvent(job.id, "RETRYING", job.progress, "Nouvelle tentative planifiée");
     return;
   }
+  await terminateClipJob(job, manifest, code, message);
+}
+
+/**
+ * Résultat non conforme : aucune nouvelle tentative n'est utile puisque le
+ * rendu ne correspond pas à la commande. La réservation est remboursée
+ * immédiatement et le projet redevient un brouillon réutilisable.
+ */
+export async function failClipValidation(job: ClipWorkerJob, manifest: ClipWorkerManifest, message: string) {
+  await terminateClipJob(job, manifest, "FAILED_VALIDATION", message);
+  await appendClipEvent(job.id, "REFUNDED", 100, "Résultat non conforme — crédits remboursés");
+}
+
+async function terminateClipJob(job: ClipWorkerJob, manifest: ClipWorkerManifest, code: string, message: string) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");

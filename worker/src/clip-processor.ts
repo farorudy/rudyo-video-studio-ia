@@ -1,11 +1,22 @@
 import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { config } from "./config.js";
-import { completeClipJob, heartbeatClipJob, retryOrFailClipJob, setClipStage } from "./db.js";
+import { completeClipJob, failClipValidation, heartbeatClipJob, retryOrFailClipJob, setClipStage } from "./db.js";
 import { dimensions, probeMedia, validateAudio, validateVideo } from "./media.js";
 import { run } from "./process.js";
 import { downloadPrivateBlob, uploadPrivateVideo } from "./storage.js";
 import { clipWorkerManifestSchema, type ClipWorkerJob } from "./types.js";
+
+/** Écart maximal toléré entre le MP4 livré et la musique commandée. */
+export const MAX_DURATION_DRIFT_SECONDS = 2;
+
+/** Résultat non conforme : terminal, remboursé, jamais réessayé. */
+export class ClipValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ClipValidationError";
+  }
+}
 
 function safeDirectory(jobId: string) {
   const safeId = jobId.replace(/[^a-zA-Z0-9_-]/g, "_");
@@ -77,8 +88,19 @@ export async function processClipJob(job: ClipWorkerJob) {
     await setClipStage(job.id, "RENDERING", 40, "Création du clip simulé avec FFmpeg");
     const rendered = await renderMockClip({ photo, audio, output, audioStartSeconds: manifest.audioStartSeconds, durationSeconds: manifest.durationSeconds });
     if (!rendered.probe.streams?.some((stream) => stream.codec_type === "audio")) throw new Error("OUTPUT_AUDIO_MISSING");
+    if (!rendered.probe.streams?.some((stream) => stream.codec_type === "video")) throw new Error("OUTPUT_VIDEO_MISSING");
     const outputStats = await stat(output);
     if (outputStats.size < config.minOutputBytes || outputStats.size > config.maxOutputBytes) throw new Error("OUTPUT_SIZE_INVALID");
+
+    // Le client a payé une durée précise : un rendu de démonstration ne doit
+    // jamais être livré ni facturé à sa place.
+    const finalDuration = Number((await probeMedia(output)).format?.duration || 0);
+    const drift = Math.abs(finalDuration - manifest.durationSeconds);
+    if (!Number.isFinite(finalDuration) || drift > MAX_DURATION_DRIFT_SECONDS) {
+      throw new ClipValidationError(
+        `Durée finale de ${finalDuration.toFixed(1)} s pour une musique de ${manifest.durationSeconds} s (écart ${drift.toFixed(1)} s).`,
+      );
+    }
     await setClipStage(job.id, "UPLOADING", 95, "Enregistrement du MP4 privé");
     const blob = await uploadPrivateVideo(manifest.outputStorageKey, output);
     await completeClipJob(job, manifest, blob.url);
@@ -93,9 +115,15 @@ export async function processClaimedClipJob(job: ClipWorkerJob) {
   try {
     await processClipJob(job);
   } catch (error) {
+    const manifest = clipWorkerManifestSchema.safeParse(job.inputManifest);
+    // Non-conformité : terminal et remboursé, sans réessai.
+    if (error instanceof ClipValidationError) {
+      console.error(JSON.stringify({ event: "clip_validation_failed", jobId: job.id, reason: error.message }));
+      if (manifest.success) await failClipValidation(job, manifest.data, error.message);
+      return;
+    }
     const details = publicError(error);
     console.error(JSON.stringify({ event: "clip_worker_failed", jobId: job.id, attempt: job.attemptCount, code: details.code }));
-    const manifest = clipWorkerManifestSchema.safeParse(job.inputManifest);
     if (details.code !== "LEASE_LOST" && manifest.success) await retryOrFailClipJob(job, manifest.data, details.code, details.message);
   }
 }

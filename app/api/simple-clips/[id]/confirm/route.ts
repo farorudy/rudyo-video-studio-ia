@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getMontageServiceStatus } from "@/lib/montage/worker-status";
+import { PAID_GENERATION_UNAVAILABLE_MESSAGE } from "@/lib/montage/paid-generation-gate";
+import { PaidGenerationUnavailableError } from "@/lib/montage/paid-generation-error";
 import { prisma } from "@/lib/prisma";
 import { beginIdempotentRequest, finishIdempotentRequest, requireIdempotencyKey } from "@/lib/request-security";
 import { startPreparedSimpleClip } from "@/lib/simple-clip-production";
@@ -43,6 +45,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     await finishIdempotentRequest(idem.record.id, 202, response);
     return NextResponse.json(response, { status: 202 });
   } catch (error) {
+    if (error instanceof PaidGenerationUnavailableError) {
+      const response = { code: error.refusal, error: PAID_GENERATION_UNAVAILABLE_MESSAGE };
+      await finishIdempotentRequest(idem.record.id, 503, response).catch(() => undefined);
+      return NextResponse.json(response, { status: 503 });
+    }
     const message = error instanceof Error ? error.message : "La génération n’a pas pu démarrer.";
     const status = message === "INSUFFICIENT_CREDITS" ? 402 : 400;
     const response = { error: message };

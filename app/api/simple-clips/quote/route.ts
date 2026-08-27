@@ -11,14 +11,34 @@ const MAX_AUDIO_BYTES = 100 * 1024 * 1024;
 
 export async function POST(request: NextRequest) {
   try {
-    const form = await readFormDataWithLimit(request, MAX_AUDIO_BYTES + 1024 * 1024);
-    const audio = form.get("audio"), start = Number(form.get("audioStartSeconds") || 0), selectedPlan = String(form.get("plan") || "TIKTOK");
+    const contentType = request.headers.get("content-type") || "";
+    let durationSeconds: number, codec = "browser-metadata", sampleRate: number | null = null, channels: number | null = null;
+    let start: number, selectedPlan: string;
+    if (contentType.includes("application/json")) {
+      const body = await request.json() as { audioDurationSeconds?: number; audioStartSeconds?: number; plan?: string };
+      durationSeconds = Number(body.audioDurationSeconds);
+      start = Number(body.audioStartSeconds || 0);
+      selectedPlan = String(body.plan || "TIKTOK");
+      if (!Number.isFinite(durationSeconds) || durationSeconds <= 0 || durationSeconds > 24 * 60 * 60) {
+        return NextResponse.json({ error: "La durée de la musique n’a pas pu être vérifiée." }, { status: 400 });
+      }
+    } else {
+      const form = await readFormDataWithLimit(request, MAX_AUDIO_BYTES + 1024 * 1024);
+      const audio = form.get("audio");
+      start = Number(form.get("audioStartSeconds") || 0);
+      selectedPlan = String(form.get("plan") || "TIKTOK");
+      if (!(audio instanceof File) || audio.size <= 0 || audio.size > MAX_AUDIO_BYTES) return NextResponse.json({ error: "Choisissez une musique MP3, WAV ou M4A valide." }, { status: 400 });
+      const buffer = Buffer.from(await audio.arrayBuffer()), mime = sniffMime(buffer);
+      if (!mime || !["audio/mpeg", "audio/wav", "video/mp4"].includes(mime)) return NextResponse.json({ error: "Le contenu du fichier audio n’est pas autorisé." }, { status: 400 });
+      const extension = audio.name.split(".").pop() || "audio";
+      const probe = await probeAudioBuffer(buffer, extension);
+      durationSeconds = probe.durationSeconds;
+      codec = probe.codec || "unknown";
+      sampleRate = probe.sampleRate;
+      channels = probe.channels;
+    }
     if (!(["TIKTOK", "LONG", "PREMIUM"] as string[]).includes(selectedPlan)) return NextResponse.json({ error: "Choisissez une formule valide." }, { status: 400 });
-    if (!(audio instanceof File) || audio.size <= 0 || audio.size > MAX_AUDIO_BYTES) return NextResponse.json({ error: "Choisissez une musique MP3, WAV ou M4A valide." }, { status: 400 });
-    const buffer = Buffer.from(await audio.arrayBuffer()), mime = sniffMime(buffer);
-    if (!mime || !["audio/mpeg", "audio/wav", "video/mp4"].includes(mime)) return NextResponse.json({ error: "Le contenu du fichier audio n’est pas autorisé." }, { status: 400 });
-    const extension = audio.name.split(".").pop() || "audio";
-    const [{ durationSeconds, codec, sampleRate, channels }, user, worker] = await Promise.all([probeAudioBuffer(buffer, extension), getCurrentUser(request), getMontageServiceStatus()]);
+    const [user, worker] = await Promise.all([getCurrentUser(request), getMontageServiceStatus()]);
     const plan = selectedPlan as AutomaticClipPlanCode;
     const quote = quoteClip(durationSeconds, start, plan), economics = getClipEconomics(quote.billableDurationSeconds, plan), balance = user && !user.localSession ? user.creditsRemaining : null;
     return NextResponse.json({ success: true, ...quote, ...getClipAuthorization(quote.totalCredits, balance, worker.available, economics.enabled, quote.supported, quote.fitsSelectedPlan), workerState: worker.state, workerWaking: worker.waking, balance, codec, sampleRate, channels, maxSupportedSeconds: CLIP_OFFER.maxDurationSeconds, economics: { enabled: economics.enabled, marginEur: economics.marginEur } }, { headers: { "Cache-Control": "private, no-store" } });

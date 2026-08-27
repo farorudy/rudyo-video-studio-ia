@@ -5,6 +5,8 @@ import { FinalExportStatus, VideoProjectStatus } from "@prisma/client";
 import { reserveCredits, refundCreditUsage } from "@/lib/credit-utils";
 import { prisma } from "@/lib/prisma";
 import { dispatchRailwayClipJob } from "@/lib/montage/worker-client";
+import { getMontageServiceStatus } from "@/lib/montage/worker-status";
+import { PaidGenerationUnavailableError } from "@/lib/montage/paid-generation-error";
 import { buildTikTokScenes, CLIP_OFFER, getClipEconomics, quoteClip } from "@/lib/tiktok-offer";
 import { type AutomaticClipPlanCode } from "@/lib/clip-pricing";
 
@@ -34,6 +36,13 @@ export async function startPreparedSimpleClip(options: { projectId: string; user
   if (!quote.fitsSelectedPlan) throw new Error("PLAN_TOO_SHORT");
   const economics = getClipEconomics(quote.normalizedSeconds, selectedPlan);
   if (!economics.enabled) throw new Error("OFFER_PAUSED");
+
+  // Verrou de facturation, placé avant toute réservation : un worker de
+  // démonstration ne doit jamais pouvoir débiter un client réel.
+  const service = await getMontageServiceStatus();
+  if (!service.paidGenerationAllowed) {
+    throw new PaidGenerationUnavailableError(service.paidGenerationRefusal ?? "WORKER_UNREACHABLE");
+  }
 
   const user = await prisma.user.findUnique({ where: { id: options.userId }, select: { creditsRemaining: true } });
   if (!user) throw new Error("Compte introuvable.");

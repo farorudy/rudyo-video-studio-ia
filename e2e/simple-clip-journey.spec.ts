@@ -37,6 +37,30 @@ test("les formules sont présentées comme des plafonds, jamais comme des prix f
   expect(pageErrors).toEqual([]);
 });
 
+test("un devis en échec est expliqué au lieu de laisser un bouton mort", async ({ page }) => {
+  await page.route("**/api/session", (route) => route.fulfill({
+    status: 200, contentType: "application/json", body: JSON.stringify({ success: true, user: null }),
+  }));
+  await page.route("**/api/simple-clips/quote", (route) => route.fulfill({
+    status: 400, contentType: "application/json",
+    body: JSON.stringify({ error: "La durée de la musique n’a pas pu être vérifiée." }),
+  }));
+
+  await page.goto("/");
+  await page.locator('input[type="file"][accept*="audio"]').setInputFiles({
+    name: "chanson.wav",
+    mimeType: "audio/wav",
+    buffer: Buffer.from("UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=", "base64"),
+  });
+
+  const panel = page.getByTestId("clip-quote-error");
+  await expect(panel).toBeVisible();
+  await expect(panel).toContainText("Le prix n’a pas pu être calculé.");
+  await expect(panel).toContainText("La durée de la musique n’a pas pu être vérifiée.");
+  await expect(panel.getByRole("button", { name: "Recalculer le prix" })).toBeVisible();
+  await expect(page.getByTestId("clip-primary-action")).toContainText("Prix indisponible");
+});
+
 test("le formulaire simple reste lisible sur téléphone", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.route("**/api/session", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, user: null }) }));

@@ -48,6 +48,7 @@ export default function SimpleClipCreator() {
   const [selectedPlan, setSelectedPlan] = useState<PlanCode>("TIKTOK");
   const [audioStartSeconds, setAudioStartSeconds] = useState(0);
   const [quote, setQuote] = useState<Quote | null>(null);
+  const [quoteError, setQuoteError] = useState("");
   const [authPrompt, setAuthPrompt] = useState(false);
   const [clipState, setClipState] = useState<ClipState>("form");
   const [progress, setProgress] = useState(0);
@@ -86,20 +87,25 @@ export default function SimpleClipCreator() {
   }, []);
 
   const loadQuote = useCallback(async () => {
-    if (!audio) { setQuote(null); return; }
+    if (!audio) { setQuote(null); setQuoteError(""); return; }
     try {
       const form = new FormData(); form.set("audio", audio); form.set("audioStartSeconds", String(audioStartSeconds)); form.set("plan", selectedPlan);
       const response = await fetch("/api/simple-clips/quote", { method: "POST", body: form, cache: "no-store" });
       const body = await response.json() as Quote;
       if (!response.ok) throw new Error((body as unknown as { error?: string }).error);
       setQuote(body);
+      setQuoteError("");
       // La formule adaptée est appliquée d’office : l’utilisateur ne choisit jamais
       // une formule trop courte, et sa musique n’est donc jamais coupée.
       if (body.supported && body.recommendedPlan && body.recommendedPlan !== selectedPlan) {
         setSelectedPlan(body.recommendedPlan);
         setError("");
       }
-    } catch { setQuote(null); }
+    } catch (loadError) {
+      // Un devis muet laisserait un bouton désactivé sans explication : on le dit.
+      setQuote(null);
+      setQuoteError(loadError instanceof Error && loadError.message ? loadError.message : "Le prix n’a pas pu être calculé.");
+    }
   }, [audio, audioStartSeconds, selectedPlan]);
   useEffect(() => {
     const timer = window.setTimeout(() => void loadQuote(), 0);
@@ -339,6 +345,11 @@ export default function SimpleClipCreator() {
       </UploadCard>
       <div className="rounded-3xl border border-slate-800 bg-slate-900/70 p-5 sm:p-7"><Heading number="3" title="Mon idée de clip" subtitle="Une phrase suffit" /><textarea value={idea} onChange={(event) => setIdea(event.target.value)} placeholder={example} maxLength={3000} rows={6} className="mt-5 w-full resize-y rounded-2xl border border-slate-700 bg-slate-950 p-4 leading-7 outline-none placeholder:text-slate-600 focus:border-cyan-300" /><div className="mt-4 flex flex-wrap gap-2">{suggestions.map((item) => <button key={item} type="button" onClick={() => setIdea((value) => `${value.trim()}${value.trim() ? " " : ""}Style ${item.toLowerCase()}.`)} className="rounded-full border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:border-cyan-400">+ {item}</button>)}</div></div>
       <details className="group rounded-2xl border border-slate-800 bg-slate-950 p-5"><summary className="flex cursor-pointer list-none items-center justify-between font-bold text-slate-300">Options avancées <ChevronDown className="transition group-open:rotate-180" size={18} /></summary><div className="mt-5 grid gap-5 sm:grid-cols-2"><label className="text-sm font-bold text-slate-300">Style visuel<input value={style} onChange={(event) => setStyle(event.target.value)} placeholder="Ex. lumière dorée" maxLength={120} className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-900 p-3 font-normal text-white" /></label><label className="text-sm font-bold text-slate-300">Début de l’extrait (secondes)<input type="number" min="0" max={Math.max(0, Math.floor(audioDuration - 1))} value={audioStartSeconds} onChange={(event) => setAudioStartSeconds(Math.max(0, Number(event.target.value) || 0))} className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-900 p-3 font-normal text-white" /></label></div></details>
+      {!quote && quoteError && audio ? <div data-testid="clip-quote-error" role="alert" className="rounded-2xl border border-amber-400/40 bg-amber-950/25 p-4 text-center text-amber-100">
+        <p className="font-black">Le prix n’a pas pu être calculé.</p>
+        <p className="mt-2 text-sm">{quoteError}</p>
+        <button type="button" onClick={() => void loadQuote()} className="mt-4 rounded-xl border border-amber-300/60 px-4 py-2 font-black">Recalculer le prix</button>
+      </div> : null}
       {quote ? <div data-testid="clip-quote" className="rounded-2xl border border-cyan-400/30 bg-cyan-950/20 p-4 text-center">{quote.supported ? <>
         <p className="font-black text-cyan-100">Durée détectée : {Math.floor(quote.normalizedSeconds / 60)} min {String(quote.normalizedSeconds % 60).padStart(2, "0")} s</p>
         <p className="mt-1 text-cyan-100">{quote.planName} · {formatCreditAmount(quote.totalCredits)} crédits · {formatEuros(quote.priceEur)}</p>
@@ -348,7 +359,7 @@ export default function SimpleClipCreator() {
         {quote.missingCredits > 0 ? <p className="mt-3 font-bold text-amber-200">Il vous manque {formatCreditAmount(quote.missingCredits)} crédits, soit {formatEuros(quote.missingPriceEur)}.{callToAction && callToAction.overcreditCredits > 0 ? ` Le minimum de paiement impose l’achat de ${formatCreditAmount(callToAction.purchasedCredits)} crédits, dont ${formatCreditAmount(callToAction.overcreditCredits)} crédits conservés sur votre solde.` : ""}</p> : null}
       </> : <p role="alert" className="font-black text-amber-100">Votre musique dure {quote.normalizedSeconds} secondes et dépasse la durée maximale automatique de 7 minutes (420 secondes). Aucun paiement n’est possible pour cette durée.</p>}</div> : null}
       {error ? <p role="alert" className="rounded-2xl border border-rose-500/40 bg-rose-950/30 p-4 text-sm text-rose-100">{error}</p> : null}
-      <button data-testid="clip-primary-action" type="button" onClick={prepareGeneration} disabled={!formComplete || !quote?.supported || checkoutLoading || (!quote.allowed && quote.refusalCode !== "INSUFFICIENT_CREDITS")} className="flex w-full items-center justify-center gap-3 rounded-2xl bg-cyan-300 px-6 py-5 text-lg font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"><WandSparkles /> {checkoutLoading ? "Conservation du projet…" : callToAction ? callToAction.label : "Ajoutez votre musique pour connaître le prix"}</button>
+      <button data-testid="clip-primary-action" type="button" onClick={prepareGeneration} disabled={!formComplete || !quote?.supported || checkoutLoading || (!quote.allowed && quote.refusalCode !== "INSUFFICIENT_CREDITS")} className="flex w-full items-center justify-center gap-3 rounded-2xl bg-cyan-300 px-6 py-5 text-lg font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"><WandSparkles /> {checkoutLoading ? "Conservation du projet…" : callToAction ? callToAction.label : !audio ? "Ajoutez votre musique pour connaître le prix" : quoteError ? "Prix indisponible — recalculez ci-dessus" : "Calcul du prix en cours…"}</button>
       {quote?.workerState === "STARTING" ? <p className="rounded-2xl border border-cyan-400/30 bg-cyan-950/20 p-4 text-center text-cyan-100">Démarrage du service de création…</p> : null}
       {quote?.refusalCode === "WORKER_UNAVAILABLE" ? <div className="rounded-2xl border border-amber-400/30 bg-amber-950/20 p-4 text-center text-amber-200"><p>La création est temporairement indisponible. Aucun crédit ne sera débité.</p><button type="button" onClick={() => void loadQuote()} className="mt-3 rounded-xl border border-amber-300/50 px-4 py-2 font-black">Réessayer</button></div> : null}
       <p className="text-center text-xs text-slate-500">En lançant la création, vous confirmez disposer des droits sur la photo et la musique importées.</p>

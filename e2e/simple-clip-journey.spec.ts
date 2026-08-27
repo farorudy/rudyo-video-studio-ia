@@ -21,9 +21,9 @@ test("les formules sont présentées comme des plafonds, jamais comme des prix f
 
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Choisissez votre formule" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Clip jusqu’à 3 min 30" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Clip jusqu’à 5 minutes" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Clip jusqu’à 7 minutes" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Clip jusqu’à 3 min 30", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Clip jusqu’à 5 minutes", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Clip jusqu’à 7 minutes", exact: true })).toBeVisible();
   await expect(page.getByText("maximum 35 €", { exact: true })).toBeVisible();
   await expect(page.getByText("maximum 50 €", { exact: true })).toBeVisible();
   await expect(page.getByText("maximum 70 €", { exact: true })).toBeVisible();

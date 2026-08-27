@@ -237,6 +237,9 @@ export default function SimpleClipCreator() {
         }
         setError(body.error || "La création n’a pas pu démarrer."); setClipState("failed"); actionInFlight.current = false; return;
       }
+      // La requête est terminée : le verrou anti-double-clic doit retomber,
+      // sinon plus aucune action ultérieure (dont la relance) ne peut partir.
+      actionInFlight.current = false;
       setProjectId(body.projectId); window.localStorage.setItem(ACTIVE_PROJECT_KEY, body.projectId); setProgress(34); setProgressMessage("Préparation de votre scénario");
     };
     xhr.onerror = () => { setError("L’envoi a été interrompu. Vous pouvez recommencer."); setClipState("failed"); actionInFlight.current = false; };

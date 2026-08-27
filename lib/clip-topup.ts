@@ -1,8 +1,8 @@
+import { calculateClipTopUp } from "@/lib/clip-pricing";
+
 export function calculateMissingClipCredits(requiredCredits: number, currentBalance: number) {
-  if (!Number.isInteger(requiredCredits) || requiredCredits <= 0) throw new Error("INVALID_REQUIRED_CREDITS");
-  if (!Number.isInteger(currentBalance) || currentBalance < 0) throw new Error("INVALID_BALANCE");
-  const missingCredits = Math.max(0, requiredCredits - currentBalance);
-  return { missingCredits, priceInCents: missingCredits, priceEur: missingCredits / 100 };
+  const quote = calculateClipTopUp(requiredCredits, currentBalance);
+  return { ...quote, priceEur: quote.priceInEuros };
 }
 
 export function validateClipTopUpFulfillment(input: {
@@ -11,7 +11,7 @@ export function validateClipTopUpFulfillment(input: {
   purchasedCredits: number;
   amountTotal: number | null;
 }) {
-  const expected = calculateMissingClipCredits(input.requiredCredits, input.balanceAtCheckout).missingCredits;
+  const expected = calculateMissingClipCredits(input.requiredCredits, input.balanceAtCheckout).purchasedCredits;
   if (expected <= 0 || input.purchasedCredits !== expected || input.amountTotal !== expected) throw new Error("TOPUP_AMOUNT_MISMATCH");
   return expected;
 }

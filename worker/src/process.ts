@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import path from "node:path";
 
 export type RunOptions = {
   timeoutMs?: number;
@@ -6,6 +7,7 @@ export type RunOptions = {
 };
 
 export async function run(command: string, args: string[], options: RunOptions = {}) {
+  const commandName = path.basename(command).toUpperCase().replace(/[^A-Z0-9_]/g, "_");
   return new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
     const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
     let stdout = "";
@@ -14,7 +16,7 @@ export async function run(command: string, args: string[], options: RunOptions =
     const maxLogChars = 128_000;
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
-      reject(new Error(`${command.toUpperCase()}_TIMEOUT`));
+      reject(new Error(`${commandName}_TIMEOUT`));
     }, options.timeoutMs || 30 * 60_000);
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
@@ -31,7 +33,7 @@ export async function run(command: string, args: string[], options: RunOptions =
     child.once("close", (code) => {
       clearTimeout(timer);
       if (code === 0) resolve({ stdout, stderr });
-      else reject(new Error(`${command.toUpperCase()}_EXIT_${code}: ${stderr.slice(-2000)}`));
+      else reject(new Error(`${commandName}_EXIT_${code}: ${stderr.slice(-2000)}`));
     });
   });
 }

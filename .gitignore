@@ -41,6 +41,7 @@ yarn-error.log*
 .env*.local
 .env*
 !.env.example
+!.env.local.example
 
 # vercel
 .vercel
@@ -61,4 +62,17 @@ next-env.d.ts
 .fake.env.local
 
 .env*
+!.env.example
+!.env.local.example
 .playwright-browsers/
+
+# isolated local Railway worker verification artifacts
+/.app-local*.log
+/.app-local.pid
+/.worker-local*.log
+/.worker-local.pid
+/.local-worker-temp/
+/media/local-failure-fixtures/
+/media/local-test-fixtures/
+/media/local-test-results/
+/media/users/

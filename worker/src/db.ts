@@ -10,6 +10,15 @@ export const pool = new Pool({
   statement_timeout: 30_000,
 });
 
+// pg emits connection failures from idle clients on the Pool itself. Without
+// a listener, a brief database restart terminates the whole worker process.
+pool.on("error", (error) => {
+  console.error(JSON.stringify({
+    event: "database_pool_error",
+    message: error.message.split("\n", 1)[0],
+  }));
+});
+
 export async function checkDatabase() {
   await pool.query("SELECT 1");
 }
@@ -148,7 +157,7 @@ export async function completeJob(job: MontageJob, outputUrl: string, diagnostic
         await client.query(`UPDATE "User" SET "creditsUsed" = "creditsUsed" + $2, "updatedAt" = NOW() WHERE "id" = $1`, [row.userId, row.amount]);
         await client.query(`
           INSERT INTO "CreditUsage" ("id", "userId", "amount", "reason", "metadata", "reservationId", "createdAt")
-          VALUES (md5(random()::text || clock_timestamp()::text), $1, $2, $3, jsonb_build_object('reservationId', $4, 'action', $5), $4, NOW())
+          VALUES (md5(random()::text || clock_timestamp()::text), $1, $2, $3, jsonb_build_object('reservationId', $4::text, 'action', $5::text), $4::text, NOW())
           ON CONFLICT ("reservationId") DO NOTHING
         `, [row.userId, row.amount, row.description, reservationId, row.action]);
       }
@@ -346,7 +355,7 @@ export async function completeClipJob(job: ClipWorkerJob, manifest: ClipWorkerMa
     const row = confirmed.rows[0];
     if (row) {
       await client.query(`UPDATE "User" SET "creditsUsed"="creditsUsed"+$2, "updatedAt"=NOW() WHERE "id"=$1`, [row.userId, row.amount]);
-      await client.query(`INSERT INTO "CreditUsage" ("id","userId","amount","reason","metadata","reservationId","createdAt") VALUES (md5(random()::text || clock_timestamp()::text),$1,$2,$3,jsonb_build_object('reservationId',$4,'action',$5,'provider','railway-mock'),$4,NOW()) ON CONFLICT ("reservationId") DO NOTHING`, [row.userId, row.amount, row.description, manifest.creditReservationId, row.action]);
+      await client.query(`INSERT INTO "CreditUsage" ("id","userId","amount","reason","metadata","reservationId","createdAt") VALUES (md5(random()::text || clock_timestamp()::text),$1,$2,$3,jsonb_build_object('reservationId',$4::text,'action',$5::text,'provider','railway-mock'),$4::text,NOW()) ON CONFLICT ("reservationId") DO NOTHING`, [row.userId, row.amount, row.description, manifest.creditReservationId, row.action]);
     }
     await client.query(`INSERT INTO "ClipWorkerJobEvent" ("id","jobId","status","progress","message","createdAt") VALUES (md5(random()::text || clock_timestamp()::text),$1,'SUCCEEDED',100,'Clip simulé terminé',NOW())`, [job.id]);
     await client.query("COMMIT");

@@ -227,7 +227,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const stripe = getStripeClient();
+    const stripe = process.env.NODE_ENV !== "production" && process.env.STRIPE_MOCK_MODE === "true"
+      ? new Stripe("sk_test_rudyo_local_mock")
+      : getStripeClient();
     let event: Stripe.Event;
     try {
       event = stripe.webhooks.constructEvent(body, signature, webhookSecret);

@@ -6,8 +6,10 @@ const positiveInt = (fallback: number) => z.coerce.number().int().positive().def
 
 const schema = z.object({
   DATABASE_URL: z.string().min(1),
-  BLOB_READ_WRITE_TOKEN: z.string().min(1),
+  BLOB_READ_WRITE_TOKEN: z.preprocess((value) => value === "" ? undefined : value, z.string().min(1).optional()),
   CLOUD_STORAGE_PREFIX: z.string().regex(/^[a-zA-Z0-9/_-]+$/).default("rudyo-video-studio"),
+  STORAGE_MOCK_MODE: z.enum(["true", "false"]).default("false"),
+  LOCAL_STORAGE_ROOT: z.string().min(1).optional(),
   MONTAGE_WORKER_SECRET: z.string().min(32).optional(),
   WORKER_SHARED_SECRET: z.string().min(32).optional(),
   WORKER_MOCK_MODE: z.enum(["true", "false"]).default("true"),
@@ -36,11 +38,14 @@ const schema = z.object({
 
 const parsed = schema.superRefine((value, context) => {
   if (!value.WORKER_SHARED_SECRET && !value.MONTAGE_WORKER_SECRET) context.addIssue({ code: "custom", path: ["WORKER_SHARED_SECRET"], message: "WORKER_SHARED_SECRET is required" });
+  if (value.STORAGE_MOCK_MODE !== "true" && !value.BLOB_READ_WRITE_TOKEN) context.addIssue({ code: "custom", path: ["BLOB_READ_WRITE_TOKEN"], message: "BLOB_READ_WRITE_TOKEN is required outside storage mock mode" });
 }).parse(process.env);
 
 export const config = {
   databaseUrl: parsed.DATABASE_URL,
   blobToken: parsed.BLOB_READ_WRITE_TOKEN,
+  storageMockMode: parsed.STORAGE_MOCK_MODE === "true",
+  localStorageRoot: path.resolve(parsed.LOCAL_STORAGE_ROOT || path.join(process.cwd(), "..", "media")),
   storagePrefix: parsed.CLOUD_STORAGE_PREFIX.replace(/^\/+|\/+$/g, ""),
   workerSecret: parsed.WORKER_SHARED_SECRET || parsed.MONTAGE_WORKER_SECRET!,
   mockMode: parsed.WORKER_MOCK_MODE === "true",

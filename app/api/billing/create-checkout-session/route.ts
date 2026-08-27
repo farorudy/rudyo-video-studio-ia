@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentUser } from "@/lib/auth";
@@ -24,6 +25,17 @@ function getCheckoutOrigin(req: NextRequest) {
   const configuredOrigin = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXT_PUBLIC_URL;
   const fallbackOrigin = "https://rudyoai.com";
   return process.env.NODE_ENV === "production" ? configuredOrigin ?? fallbackOrigin : req.headers.get("origin") ?? configuredOrigin ?? fallbackOrigin;
+}
+
+function mockCheckoutUrl(origin: string, projectId: string, userId: string) {
+  const secret = process.env.STRIPE_WEBHOOK_SECRET?.trim();
+  if (!secret) throw new Error("Simulation Stripe non configurée.");
+  const payload = `${projectId}.${userId}`;
+  const signature = createHmac("sha256", secret).update(payload).digest("hex");
+  const url = new URL("/api/billing/mock-checkout", origin);
+  url.searchParams.set("projectId", projectId);
+  url.searchParams.set("signature", signature);
+  return url.toString();
 }
 
 export async function POST(req: NextRequest) {
@@ -71,15 +83,18 @@ export async function POST(req: NextRequest) {
       const economics = getClipEconomics(quote.normalizedSeconds, selectedPlan);
       if (!quote.supported || !quote.fitsSelectedPlan || !economics.enabled) throw new Error("Cette formule n’est pas disponible.");
       const current = await prisma.user.findUniqueOrThrow({ where: { id: user.id }, select: { creditsRemaining: true } });
-      tokens = calculateMissingClipCredits(quote.totalCredits, current.creditsRemaining).missingCredits;
-      if (tokens <= 0) {
+      const topUp = calculateMissingClipCredits(quote.totalCredits, current.creditsRemaining);
+      tokens = topUp.purchasedCredits;
+      if (topUp.missingCredits <= 0) {
         const response = { error: "Votre solde couvre déjà ce projet.", projectId: project.id, missingCredits: 0 };
         await finishIdempotentRequest(idempotencyId, 409, response);
         return NextResponse.json(response, { status: 409 });
       }
-      unitAmount = tokens;
-      productName = `Recharge exacte · ${quote.planName}`;
-      productDescription = `${tokens.toLocaleString("fr-FR")} crédits manquants pour reprendre votre projet Rudyo.`;
+      unitAmount = topUp.priceInCents;
+      productName = `Recharge clip · ${quote.planName}`;
+      productDescription = topUp.overcreditCredits > 0
+        ? `${tokens.toLocaleString("fr-FR")} crédits achetés, dont ${topUp.overcreditCredits.toLocaleString("fr-FR")} resteront sur votre solde après la création.`
+        : `${topUp.missingCredits.toLocaleString("fr-FR")} crédits manquants pour reprendre votre projet Rudyo.`;
       successUrl = `${origin}/offres/succes?session_id={CHECKOUT_SESSION_ID}&projectId=${encodeURIComponent(project.id)}`;
       cancelUrl = `${origin}/?resumeProjectId=${encodeURIComponent(project.id)}`;
       clipMetadata = {
@@ -102,6 +117,13 @@ export async function POST(req: NextRequest) {
       tokens = creditPack?.credits ?? 0;
       productName = getStripeProductName(productId);
       productDescription = getStripeProductDescription(productId);
+    }
+
+    if (process.env.NODE_ENV !== "production" && process.env.STRIPE_MOCK_MODE === "true") {
+      if (!isTopUp || !parsed.data.projectId) throw new Error("La simulation Stripe locale ne couvre que la recharge exacte d’un clip.");
+      const response = { url: mockCheckoutUrl(origin, parsed.data.projectId, user.id), mock: true };
+      await finishIdempotentRequest(idempotencyId, 200, response);
+      return NextResponse.json(response);
     }
 
     const stripe = getStripeClient();

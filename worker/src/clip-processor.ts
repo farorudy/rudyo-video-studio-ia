@@ -1,4 +1,4 @@
-import { mkdir, rm, stat } from "node:fs/promises";
+import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { config } from "./config.js";
 import { completeClipJob, heartbeatClipJob, retryOrFailClipJob, setClipStage } from "./db.js";
@@ -25,12 +25,28 @@ export async function renderMockClip(options: { photo: string; audio: string; ou
   const availableAudio = Math.max(0.5, audioInfo.duration - options.audioStartSeconds);
   const demoDuration = Math.min(6, options.durationSeconds, availableAudio);
   const size = dimensions("9:16", "720p");
+  const directory = path.dirname(options.output);
+  const sceneCount = 3;
+  const sceneDuration = demoDuration / sceneCount;
+  const scenes: string[] = [];
+  for (let index = 0; index < sceneCount; index += 1) {
+    const scene = path.join(directory, `mock-scene-${index + 1}.mp4`);
+    const brightness = (-0.03 + index * 0.03).toFixed(2);
+    await run(config.ffmpegPath, [
+      "-hide_banner", "-nostdin", "-y", "-loop", "1", "-i", options.photo,
+      "-t", sceneDuration.toFixed(3),
+      "-vf", `scale=${size.width}:${size.height}:force_original_aspect_ratio=increase,crop=${size.width}:${size.height},setsar=1,eq=brightness=${brightness},fps=30`,
+      "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p", scene,
+    ], { timeoutMs: 180_000 });
+    scenes.push(scene);
+  }
+  const concatFile = path.join(directory, "mock-scenes.txt");
+  await writeFile(concatFile, scenes.map((scene) => `file '${scene.replace(/\\/g, "/").replace(/'/g, "'\\''")}'`).join("\n"), { encoding: "utf8", mode: 0o600 });
   await run(config.ffmpegPath, [
-    "-hide_banner", "-nostdin", "-y", "-loop", "1", "-i", options.photo,
+    "-hide_banner", "-nostdin", "-y", "-f", "concat", "-safe", "0", "-i", concatFile,
     "-ss", options.audioStartSeconds.toFixed(3), "-i", options.audio, "-t", demoDuration.toFixed(3),
     "-map", "0:v:0", "-map", "1:a:0",
-    "-vf", `scale=${size.width}:${size.height}:force_original_aspect_ratio=increase,crop=${size.width}:${size.height},setsar=1,fps=30`,
-    "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
+    "-c:v", "copy",
     "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-shortest", "-movflags", "+faststart", options.output,
   ], { timeoutMs: 180_000 });
   return validateVideo(options.output);

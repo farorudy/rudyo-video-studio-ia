@@ -1,0 +1,7 @@
+{
+  "serviceId": "9f49b5ba-c6c5-4e88-8e85-12e7269cfd0f",
+  "environmentId": "1d136be5-4236-41d3-b3a6-c39d1ad2ffc4",
+  "input": {
+    "startCommand": "sh -c 'set -e; D=/var/lib/rudyo-montage/storage/railway-fixtures; mkdir -p \"$D\"; [ -f \"$D/portrait.png\" ] || ffmpeg -hide_banner -loglevel error -y -f lavfi -i color=c=navy:s=1080x1080 -frames:v 1 \"$D/portrait.png\"; [ -f \"$D/music.wav\" ] || ffmpeg -hide_banner -loglevel error -y -f lavfi -i sine=frequency=440:sample_rate=44100:duration=15 -c:a pcm_s16le \"$D/music.wav\"; echo \"{\\\"event\\\":\\\"fixtures_ready\\\",\\\"dir\\\":\\\"$D\\\"}\"; exec node dist/src/index.js'"
+  }
+}

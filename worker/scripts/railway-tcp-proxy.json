@@ -1,0 +1,7 @@
+{
+  "input": {
+    "environmentId": "1d136be5-4236-41d3-b3a6-c39d1ad2ffc4",
+    "serviceId": "1d908fc4-fcf1-4f99-aecf-239a9a6cf1aa",
+    "applicationPort": 5432
+  }
+}

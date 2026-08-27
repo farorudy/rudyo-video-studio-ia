@@ -13,7 +13,8 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates dumb-init ffmpeg \
   && rm -rf /var/lib/apt/lists/* \
   && mkdir -p /var/lib/rudyo-montage \
-  && chown node:node /var/lib/rudyo-montage
+  && chown node:node /var/lib/rudyo-montage \
+  && chmod 700 /var/lib/rudyo-montage
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force

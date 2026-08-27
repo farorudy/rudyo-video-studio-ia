@@ -1,9 +1,9 @@
-import { calculateClipQuote, CLIP_PLAN_LIMITS, normalizeDuration, resolveClipPlan, type AutomaticClipPlanCode, type ClipPlanCode as PricingPlanCode } from "@/lib/clip-pricing";
+import { calculateClipQuote, calculateClipTopUp, CLIP_PLAN_CATALOG, CLIP_PLAN_LIMITS, normalizeDuration, resolveClipPlan, type AutomaticClipPlanCode, type ClipPlanCode as PricingPlanCode } from "@/lib/clip-pricing";
 
 export const CLIP_PLANS = Object.freeze({
-  TIKTOK: Object.freeze({ id: "tiktok_clip_complete", code: "TIKTOK", name: "Clip 3:30", maxDurationSeconds: CLIP_PLAN_LIMITS.TIKTOK, maxCredits: 3500, maxPriceEur: 35 }),
-  LONG: Object.freeze({ id: "clip_long", code: "LONG", name: "Clip 5:00", maxDurationSeconds: CLIP_PLAN_LIMITS.LONG, maxCredits: 5000, maxPriceEur: 50 }),
-  PREMIUM: Object.freeze({ id: "clip_premium", code: "PREMIUM", name: "Clip 7:00", maxDurationSeconds: CLIP_PLAN_LIMITS.PREMIUM, maxCredits: 7000, maxPriceEur: 70 }),
+  TIKTOK: Object.freeze({ id: "tiktok_clip_complete", code: "TIKTOK", name: "Clip 3:30", maxDurationSeconds: CLIP_PLAN_LIMITS.TIKTOK, maxCredits: CLIP_PLAN_CATALOG.TIKTOK.maxCredits, maxPriceEur: CLIP_PLAN_CATALOG.TIKTOK.maxPriceInEuros }),
+  LONG: Object.freeze({ id: "clip_long", code: "LONG", name: "Clip 5:00", maxDurationSeconds: CLIP_PLAN_LIMITS.LONG, maxCredits: CLIP_PLAN_CATALOG.LONG.maxCredits, maxPriceEur: CLIP_PLAN_CATALOG.LONG.maxPriceInEuros }),
+  PREMIUM: Object.freeze({ id: "clip_premium", code: "PREMIUM", name: "Clip 7:00", maxDurationSeconds: CLIP_PLAN_LIMITS.PREMIUM, maxCredits: CLIP_PLAN_CATALOG.PREMIUM.maxCredits, maxPriceEur: CLIP_PLAN_CATALOG.PREMIUM.maxPriceInEuros }),
 });
 
 export type ClipPlanCode = keyof typeof CLIP_PLANS;
@@ -93,9 +93,22 @@ export function getClipEconomics(durationSeconds: number, selectedPlan?: Automat
 export const getTikTokEconomics = getClipEconomics;
 
 export function getClipAuthorization(totalCost: number, currentBalance: number | null, serviceAvailable: boolean, economicallyAllowed = true, supported = true, fitsSelectedPlan = true) {
-  const missingCredits = currentBalance === null ? 0 : Math.max(0, totalCost - currentBalance);
+  const topUp = currentBalance === null ? null : calculateClipTopUp(totalCost, currentBalance);
+  const missingCredits = topUp?.missingCredits ?? 0;
   const refusalCode = !supported ? "DURATION_TOO_LONG" : !fitsSelectedPlan ? "PLAN_TOO_SHORT" : !serviceAvailable ? "WORKER_UNAVAILABLE" : !economicallyAllowed ? "OFFER_PAUSED" : missingCredits > 0 ? "INSUFFICIENT_CREDITS" : null;
-  return { totalCost, currentBalance, balanceAfter: currentBalance === null ? null : Math.max(0, currentBalance - totalCost), missingCredits, missingPriceEur: missingCredits / CLIP_OFFER.creditsPerEuro, allowed: refusalCode === null, workerAvailable: serviceAvailable, refusalCode };
+  return {
+    totalCost,
+    currentBalance,
+    balanceAfter: currentBalance === null ? null : Math.max(0, currentBalance - totalCost),
+    missingCredits,
+    missingPriceEur: missingCredits / CLIP_OFFER.creditsPerEuro,
+    checkoutCredits: topUp?.purchasedCredits ?? 0,
+    checkoutPriceEur: topUp?.priceInEuros ?? 0,
+    overcreditCredits: topUp?.overcreditCredits ?? 0,
+    allowed: refusalCode === null,
+    workerAvailable: serviceAvailable,
+    refusalCode,
+  };
 }
 
 export const getTikTokAuthorization = getClipAuthorization;

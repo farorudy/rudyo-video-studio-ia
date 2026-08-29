@@ -9,7 +9,7 @@ import { useSession } from "@/app/components/SessionProvider";
 import { buildClipCallToAction, CLIP_PLAN_CATALOG, formatCreditAmount, formatEuros } from "@/lib/clip-pricing";
 
 type PlanCode = "TIKTOK" | "LONG" | "PREMIUM";
-type Quote = { totalCredits: number; requiredCredits: number; priceEur: number; audioDurationSeconds: number; normalizedSeconds: number; billableDurationSeconds: number; plan: PlanCode | "CUSTOM"; planName: string; supported: boolean; fitsSelectedPlan: boolean; recommendedPlan: PlanCode | null; maxPriceEur: number | null; balance: number | null; balanceAfter: number | null; missingCredits: number; missingPriceEur: number; allowed: boolean; workerAvailable: boolean; workerState?: string; workerWaking?: boolean; refusalCode: string | null };
+type Quote = { totalCredits: number; requiredCredits: number; priceEur: number; audioDurationSeconds: number; normalizedSeconds: number; billableDurationSeconds: number; plan: PlanCode | "CUSTOM"; planName: string; supported: boolean; fitsSelectedPlan: boolean; recommendedPlan: PlanCode | null; maxPriceEur: number | null; balance: number | null; balanceAfter: number | null; missingCredits: number; missingPriceEur: number; allowed: boolean; workerAvailable: boolean; workerState?: string; workerWaking?: boolean; refusalCode: string | null; storyboardUrl?: string | null; scenarioValidated?: boolean };
 type ClipState = "form" | "draft" | "processing" | "completed" | "failed";
 type StatusPayload = Partial<Quote> & { state: "draft" | "processing" | "completed" | "failed"; progress?: number; message: string; videoUrl?: string; downloadUrl?: string; projectTitle?: string; durationSeconds?: number; createdAt?: string; error?: string };
 type UploadedClipFiles = { photoFile: File; audioFile: File; photoUrl: string; audioUrl: string };
@@ -258,32 +258,6 @@ export default function SimpleClipCreator() {
       headers: { "Content-Type": "application/json" },
     };
   }
-  async function startMissingCreditsCheckout() {
-    if (!photo || !audio || !quote || quote.missingCredits <= 0 || actionInFlight.current) return;
-    actionInFlight.current = true;
-    setCheckoutLoading(true);
-    setError("");
-    putDraft(photo, audio, idea, selectedPlan, style, audioStartSeconds);
-    try {
-      const clipRequest = await buildClipRequest("prepare_only");
-      const prepare = await fetch("/api/simple-clips", { method: "POST", headers: { ...clipRequest.headers, "Idempotency-Key": crypto.randomUUID() }, body: clipRequest.body });
-      const draft = await readResponseBody<{ projectId?: string; error?: string }>(prepare);
-      if (!draft.projectId) throw new Error(draft.error || "Le brouillon n’a pas pu être conservé.");
-      window.localStorage.setItem(ACTIVE_PROJECT_KEY, draft.projectId);
-      const checkout = await fetch("/api/stripe/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
-        body: JSON.stringify({ mode: "clip_topup", projectId: draft.projectId }),
-      });
-      const payment = await checkout.json() as { url?: string; error?: string };
-      if (!checkout.ok || !payment.url) throw new Error(payment.error || "Paiement indisponible.");
-      window.location.href = payment.url;
-    } catch (checkoutError) {
-      setError(checkoutError instanceof Error ? checkoutError.message : "Paiement indisponible.");
-      setCheckoutLoading(false);
-      actionInFlight.current = false;
-    }
-  }
   function prepareGeneration() {
     setError("");
     if (!photo || !audio || idea.trim().length < 10) return setError("Ajoutez votre photo, votre musique et décrivez votre idée en une phrase.");
@@ -293,10 +267,7 @@ export default function SimpleClipCreator() {
     if (!quote.supported) return setError("Votre musique dépasse la durée maximale automatique de 7 minutes.");
     // L’effet d’auto-sélection réaligne la formule ; on attend simplement le devis à jour.
     if (!quote.fitsSelectedPlan) return setError("La formule adaptée à votre musique est en cours de sélection. Réessayez dans un instant.");
-    if (!quote.workerAvailable) return setError("Le service de création est momentanément indisponible. Aucun crédit ne sera débité.");
-    if (quote.refusalCode === "INSUFFICIENT_CREDITS") { void startMissingCreditsCheckout(); return; }
-    if (!quote.allowed) return setError("Cette formule est temporairement indisponible.");
-    void upload();
+    void upload("prepare_only");
   }
   function prepareScenarioOnly() {
     setError("");
@@ -316,7 +287,7 @@ export default function SimpleClipCreator() {
         headers: { ...clipRequest.headers, "Idempotency-Key": crypto.randomUUID() },
         body: clipRequest.body,
       });
-      const body = await readResponseBody<(Partial<Quote> & { projectId?: string; error?: string; state?: string })>(response);
+      const body = await readResponseBody<(Partial<Quote> & { projectId?: string; error?: string; state?: string; storyboardUrl?: string | null })>(response);
       if (!response.ok || !body.projectId) {
         if (body.projectId) {
           setProjectId(body.projectId);
@@ -332,6 +303,7 @@ export default function SimpleClipCreator() {
         setResumeQuote(body as Quote);
         window.localStorage.setItem(ACTIVE_PROJECT_KEY, body.projectId);
         setClipState("draft");
+        if (body.storyboardUrl) window.location.href = body.storyboardUrl;
         return;
       }
       setProjectId(body.projectId); window.localStorage.setItem(ACTIVE_PROJECT_KEY, body.projectId); setProgress(34); setProgressMessage("Préparation de votre scénario");
@@ -452,7 +424,7 @@ export default function SimpleClipCreator() {
         {quote.missingCredits > 0 ? <p className="mt-3 font-bold text-amber-200">Il vous manque {formatCreditAmount(quote.missingCredits)} crédits, soit {formatEuros(quote.missingPriceEur)}.{callToAction && callToAction.overcreditCredits > 0 ? ` Le minimum de paiement impose l’achat de ${formatCreditAmount(callToAction.purchasedCredits)} crédits, dont ${formatCreditAmount(callToAction.overcreditCredits)} crédits conservés sur votre solde.` : ""}</p> : null}
       </> : <p role="alert" className="font-black text-amber-100">Votre musique dure {quote.normalizedSeconds} secondes et dépasse la durée maximale automatique de 7 minutes (420 secondes). Aucun paiement n’est possible pour cette durée.</p>}</div> : null}
       {error ? <p role="alert" className="rounded-2xl border border-rose-500/40 bg-rose-950/30 p-4 text-sm text-rose-100">{error}</p> : null}
-      <button data-testid="clip-primary-action" type="button" onClick={prepareGeneration} disabled={!formComplete || !quote?.supported || checkoutLoading || (!quote.allowed && quote.refusalCode !== "INSUFFICIENT_CREDITS")} className="flex w-full items-center justify-center gap-3 rounded-2xl bg-cyan-300 px-6 py-5 text-lg font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"><WandSparkles /> {checkoutLoading ? "Conservation du projet…" : callToAction ? callToAction.label : !audio ? "Ajoutez votre musique pour connaître le prix" : quoteError ? "Prix indisponible — recalculez ci-dessus" : "Calcul du prix en cours…"}</button>
+      <button data-testid="clip-primary-action" type="button" onClick={prepareGeneration} disabled={!formComplete || !quote?.supported || !quote.fitsSelectedPlan || checkoutLoading} className="flex w-full items-center justify-center gap-3 rounded-2xl bg-cyan-300 px-6 py-5 text-lg font-black text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"><WandSparkles /> {checkoutLoading ? "Conservation du projet…" : formComplete && quote?.supported ? "Préparer mon scénario" : !audio ? "Ajoutez votre musique pour préparer le scénario" : quoteError ? "Prix indisponible — recalculez ci-dessus" : "Calcul en cours…"}</button>
       {formComplete && quote?.supported && quote.fitsSelectedPlan && !quote.allowed && quote.refusalCode !== "INSUFFICIENT_CREDITS" ? <button type="button" onClick={prepareScenarioOnly} className="w-full rounded-2xl border border-cyan-300/50 px-6 py-4 font-black text-cyan-100">Préparer le scénario sans lancer Seedance</button> : null}
       {quote?.workerState === "STARTING" ? <p className="rounded-2xl border border-cyan-400/30 bg-cyan-950/20 p-4 text-center text-cyan-100">Démarrage du service de création…</p> : null}
       {quote?.refusalCode === "WORKER_UNAVAILABLE" ? <div className="rounded-2xl border border-amber-400/30 bg-amber-950/20 p-4 text-center text-amber-200"><p>La création est temporairement indisponible. Aucun crédit ne sera débité.</p><button type="button" onClick={() => void loadQuote()} className="mt-3 rounded-xl border border-amber-300/50 px-4 py-2 font-black">Réessayer</button></div> : null}
@@ -481,6 +453,7 @@ function DraftResumeScreen({ quote, paymentReturn, checkoutLoading, error, onCon
     <h1 className="mt-6 text-3xl font-black sm:text-5xl">{waitingForWebhook ? "Confirmation sécurisée du paiement" : "Votre projet est prêt à reprendre"}</h1>
     {quote ? <><p className="mt-5 text-lg text-slate-200">{quote.planName} · {quote.normalizedSeconds} secondes · {quote.totalCredits.toLocaleString("fr-FR")} crédits</p><p className="mt-3 text-slate-300">{quote.missingCredits > 0 ? `Il manque encore ${quote.missingCredits.toLocaleString("fr-FR")} crédits. Le webhook Stripe peut prendre quelques secondes.` : quote.allowed ? "Vos crédits sont disponibles. Vous pouvez maintenant générer votre clip." : "Le scénario est conservé, mais aucune génération ni aucun débit ne sont autorisés pour le moment."}</p></> : <p className="mt-5 text-slate-300">Chargement de votre brouillon privé…</p>}
     {error ? <p role="alert" className="mt-5 rounded-2xl border border-rose-500/40 bg-rose-950/30 p-4 text-rose-100">{error}</p> : null}
+    {quote?.storyboardUrl && !quote.scenarioValidated ? <Link href={quote.storyboardUrl} className="mt-8 block w-full rounded-2xl bg-cyan-300 px-6 py-5 text-lg font-black text-slate-950">Voir et valider mon scénario</Link> : null}
     {quote?.allowed ? <button type="button" onClick={onConfirm} className="mt-8 w-full rounded-2xl bg-cyan-300 px-6 py-5 text-lg font-black text-slate-950">Confirmer et générer mon clip</button> : null}
     {quote && quote.missingCredits > 0 && !waitingForWebhook ? <button type="button" onClick={onBuy} disabled={checkoutLoading} className="mt-8 w-full rounded-2xl bg-cyan-300 px-6 py-5 text-lg font-black text-slate-950 disabled:opacity-50">{checkoutLoading ? "Ouverture du paiement…" : `Acheter ${quote.missingCredits.toLocaleString("fr-FR")} crédits — ${quote.missingPriceEur.toLocaleString("fr-FR", { minimumFractionDigits: 2 })} €`}</button> : null}
     {quote && !quote.workerAvailable ? <p className="mt-5 text-amber-200">Le worker est indisponible. Votre projet reste conservé et aucun crédit ne sera débité.</p> : null}

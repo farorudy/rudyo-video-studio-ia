@@ -23,11 +23,12 @@ test("le bouton public conserve le brouillon et propose uniquement le manque", a
     readFile(path.join(process.cwd(), "app", "components", "SimpleClipCreator.tsx"), "utf8"),
     readFile(path.join(process.cwd(), "app", "api", "simple-clips", "route.ts"), "utf8"),
   ]);
-  assert.match(component, /quote\.refusalCode !== "INSUFFICIENT_CREDITS"/);
+  assert.match(component, /Préparer mon scénario/);
   assert.match(component, /Acheter.*quote\.missingCredits/);
-  assert.ok(route.indexOf("prisma.videoProject.create") < route.indexOf('parsed.intent === "prepare_only"'));
-  assert.ok(route.indexOf('parsed.intent === "prepare_only"') < route.indexOf("await startPreparedSimpleClip"));
-  assert.ok(route.indexOf("WORKER_UNAVAILABLE") < route.indexOf("const form = await readFormDataWithLimit"));
+  assert.ok(route.indexOf("prisma.videoProject.create") < route.indexOf("createScenarioVersionFromLegacyProject(project.id"));
+  assert.doesNotMatch(route, /await startPreparedSimpleClip/);
+  assert.match(route, /allowed: false, refusalCode: "SCENARIO_VALIDATION_REQUIRED"/);
+  assert.ok(route.indexOf("createScenarioVersionFromLegacyProject(project.id") < route.indexOf("getMontageServiceStatus()"));
 });
 
 test("une génération payante est refusée quand le worker est hors ligne", () => {

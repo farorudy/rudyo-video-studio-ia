@@ -7,21 +7,35 @@ function pdfText(value: string) {
 }
 
 export function createTextPdf(title: string, lines: string[]) {
-  const printable = [title, ...lines].slice(0, 48);
-  const commands = ["BT", "/F1 16 Tf", "50 790 Td"];
-  printable.forEach((line, index) => {
-    if (index > 0) commands.push("0 -16 Td");
-    commands.push(`(${pdfText(line).slice(0, 100)}) Tj`);
+  const wrapped = lines.flatMap((line) => {
+    const words = ascii(line).split(/\s+/u);
+    const result: string[] = [];
+    let current = "";
+    for (const word of words) {
+      if (`${current} ${word}`.trim().length > 88) { if (current) result.push(current); current = word; }
+      else current = `${current} ${word}`.trim();
+    }
+    if (current) result.push(current);
+    return result.length ? result : [""];
   });
-  commands.push("ET");
-  const stream = commands.join("\n");
-  const objects = [
+  const linesPerPage = 46;
+  const chunks = Array.from({ length: Math.max(1, Math.ceil(wrapped.length / linesPerPage)) }, (_, index) => wrapped.slice(index * linesPerPage, (index + 1) * linesPerPage));
+  const fontId = 3 + chunks.length * 2;
+  const pageIds = chunks.map((_, index) => 3 + index * 2);
+  const objects: string[] = [
     "<< /Type /Catalog /Pages 2 0 R >>",
-    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
-    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-    `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`,
+    `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${chunks.length} >>`,
   ];
+  chunks.forEach((chunk, pageIndex) => {
+    const pageId = pageIds[pageIndex], contentId = pageId + 1;
+    const commands = ["BT", "/F1 15 Tf", "44 800 Td", `(${pdfText(title).slice(0, 88)}) Tj`, "/F1 10 Tf", "0 -24 Td"];
+    chunk.forEach((line, index) => { if (index > 0) commands.push("0 -15 Td"); commands.push(`(${pdfText(line)}) Tj`); });
+    commands.push("ET", "BT", "/F1 9 Tf", "500 24 Td", `(Page ${pageIndex + 1}/${chunks.length}) Tj`, "ET");
+    const stream = commands.join("\n");
+    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ${fontId} 0 R >> >> /Contents ${contentId} 0 R >>`);
+    objects.push(`<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`);
+  });
+  objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
   let output = "%PDF-1.4\n";
   const offsets = [0];
   objects.forEach((object, index) => {

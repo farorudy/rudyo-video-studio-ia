@@ -64,7 +64,7 @@ export default function SimpleCreations() {
           <p className="mt-1 text-sm text-slate-400">{creation.sceneCount} plans · {creation.progress}% · {creation.scenarioValid ? "scénario validé" : "scénario incomplet"}</p>
           {creation.error ? <p className="mt-3 rounded-lg bg-rose-950/40 p-3 text-sm text-rose-200">{creation.error}</p> : null}
           <div className="mt-4 flex flex-wrap gap-2">
-            <a href={creation.scenarioUrl} target="_blank" className="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-sm"><ScrollText size={16} /> Scénario</a>
+            <Link href={creation.scenarioUrl} className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-bold ${creation.scenarioValid ? "border border-emerald-400/40 text-emerald-200" : "bg-cyan-300 text-slate-950"}`}><ScrollText size={16} /> {creation.scenarioValid ? "Voir le scénario validé" : "Voir et valider mon scénario"}</Link>
             <a href={creation.scenarioJsonUrl} className="rounded-lg border border-slate-700 p-2.5" aria-label="Télécharger le scénario JSON"><FileJson size={17} /></a>
             <a href={creation.scenarioPdfUrl} className="rounded-lg border border-slate-700 p-2.5" aria-label="Télécharger le scénario PDF"><FileText size={17} /></a>
           </div>

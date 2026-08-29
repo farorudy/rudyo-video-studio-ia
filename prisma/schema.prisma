@@ -96,6 +96,28 @@ enum StoryboardSceneStatus {
   CANCELED
 }
 
+enum ScenarioVersionStatus {
+  DRAFT
+  GENERATING
+  READY
+  VALIDATED
+  SUPERSEDED
+  FAILED
+}
+
+enum StoryboardFrameStatus {
+  PENDING
+  GENERATING
+  READY
+  FAILED
+}
+
+enum VisualReferenceKind {
+  CAST
+  LOCATION
+  PROP
+}
+
 enum GenerationTaskStatus {
   PENDING
   SUBMITTED
@@ -200,6 +222,8 @@ model User {
   montageJobs          MontageJob[]
   systemTestRuns       SystemTestRun[]
   clipWorkerJobs       ClipWorkerJob[]
+  scenarioVersions     ScenarioVersion[]
+  storyboardFrames     StoryboardFrame[]
 }
 
 model EmailVerificationToken {
@@ -467,6 +491,7 @@ model VideoProject {
   montageJobs              MontageJob[]
   systemTestRun            SystemTestRun?
   clipWorkerJobs           ClipWorkerJob[]
+  scenarioVersions         ScenarioVersion[]
 
   @@index([userId, updatedAt])
   @@index([clipPlan, status])
@@ -534,9 +559,120 @@ model StoryboardScene {
   generationTasks   GenerationTask[]
   variants          GenerationVariant[]
   tokenUsages       TokenUsage[]
+  scenarioShots     ScenarioShot[]
 
   @@unique([projectId, order])
   @@index([projectId, status])
+}
+
+model ScenarioVersion {
+  id                 String                @id @default(cuid())
+  project            VideoProject          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId          String
+  user               User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId             String
+  version            Int
+  status             ScenarioVersionStatus @default(DRAFT)
+  audioDurationMs    Int
+  sourcePrompt       String
+  sourceFingerprint  String
+  contentHash        String?
+  structureJson      Json?
+  model              String?
+  provider           String?
+  promptTokens       Int?
+  completionTokens   Int?
+  estimatedCostCents Int?
+  validatedAt        DateTime?
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  scenes             ScenarioScene[]
+  references         VisualReference[]
+
+  @@unique([projectId, version])
+  @@index([userId, projectId])
+  @@index([projectId, status])
+}
+
+model ScenarioScene {
+  id                 String          @id @default(cuid())
+  scenarioVersion    ScenarioVersion @relation(fields: [scenarioVersionId], references: [id], onDelete: Cascade)
+  scenarioVersionId  String
+  position           Int
+  title              String
+  startMs            Int
+  endMs              Int
+  narrativeContent   String
+  emotionalArc       String
+  soundVibe          String
+  contextualPosition String
+  pacing             String
+  transitionOut      String
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  shots              ScenarioShot[]
+
+  @@unique([scenarioVersionId, position])
+}
+
+model ScenarioShot {
+  id                    String           @id @default(cuid())
+  scene                 ScenarioScene    @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  sceneId               String
+  legacyScene           StoryboardScene? @relation(fields: [legacySceneId], references: [id], onDelete: SetNull)
+  legacySceneId         String?
+  position              Int
+  startMs               Int
+  endMs                 Int
+  shotFunction          String
+  startFrame            String
+  actionAndCamera       String
+  environmentalDynamics String
+  endFrame              String
+  seedancePrompt        String
+  cameraMovement        String
+  continuityJson        Json
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+  storyboard            StoryboardFrame?
+
+  @@unique([sceneId, position])
+  @@index([sceneId, startMs])
+  @@index([legacySceneId])
+}
+
+model StoryboardFrame {
+  id                  String                @id @default(cuid())
+  shot                ScenarioShot          @relation(fields: [shotId], references: [id], onDelete: Cascade)
+  shotId              String                @unique
+  user                User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId              String
+  status              StoryboardFrameStatus @default(PENDING)
+  storageKey          String?
+  thumbnailStorageKey String?
+  model               String?
+  provider            String?
+  sourcePromptHash    String?
+  estimatedCostCents  Int?
+  errorCode           String?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+
+  @@index([userId, status])
+}
+
+model VisualReference {
+  id                String              @id @default(cuid())
+  scenarioVersion   ScenarioVersion     @relation(fields: [scenarioVersionId], references: [id], onDelete: Cascade)
+  scenarioVersionId String
+  stableKey         String
+  kind              VisualReferenceKind
+  name              String
+  description       String
+  storageKey        String?
+  continuityJson    Json
+
+  @@unique([scenarioVersionId, stableKey])
 }
 
 model GenerationTask {

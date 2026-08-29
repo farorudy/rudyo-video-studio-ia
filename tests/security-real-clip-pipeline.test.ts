@@ -8,7 +8,9 @@ const source = (...parts: string[]) => readFile(path.join(root, ...parts), "utf8
 
 test("le scénario complet existe et est validé avant le verrou puis la réservation", async () => {
   const [route, production] = await Promise.all([source("app", "api", "simple-clips", "route.ts"), source("lib", "simple-clip-production.ts")]);
-  assert.ok(route.indexOf("storyboardScene.createMany") < route.indexOf("const started = await startPreparedSimpleClip"));
+  assert.ok(route.indexOf("storyboardScene.createMany") < route.indexOf("createScenarioVersionFromLegacyProject(project.id"));
+  assert.doesNotMatch(route, /const started = await startPreparedSimpleClip/);
+  assert.ok(production.indexOf("SCENARIO_VALIDATION_REQUIRED") < production.indexOf("getMontageServiceStatus()"));
   assert.ok(production.indexOf("validateClipScenario(project.scenes") < production.indexOf("getMontageServiceStatus()"));
   assert.ok(production.indexOf("getMontageServiceStatus()") < production.indexOf("reserveCredits({"));
   assert.match(production, /scenes: project\.scenes\.map/);

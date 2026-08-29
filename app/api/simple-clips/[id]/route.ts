@@ -25,6 +25,7 @@ async function ownedProject(id: string, userId: string) {
       montageJobs: { orderBy: { createdAt: "desc" }, take: 1 },
       clipWorkerJobs: { orderBy: { createdAt: "desc" }, take: 1 },
       mediaAssets: { select: { storageKey: true } },
+      scenarioVersions: { orderBy: { version: "desc" }, take: 1, include: { scenes: { orderBy: { position: "asc" }, select: { id: true } } } },
     },
   });
 }
@@ -55,13 +56,20 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const quote = quoteClip(project.billedDurationSeconds || project.durationSeconds || 0, 0, selectedPlan);
     const economics = getClipEconomics(quote.normalizedSeconds, selectedPlan);
     const worker = await getMontageServiceStatus();
+    const scenarioVersion = project.scenarioVersions[0];
+    const scenarioValidated = scenarioVersion?.status === "VALIDATED";
+    const authorization = getClipAuthorization(quote.totalCredits, user.creditsRemaining, worker.paidGenerationAllowed, economics.enabled, quote.supported, quote.fitsSelectedPlan);
     return NextResponse.json({
       success: true,
       state: "draft",
       projectId: project.id,
       message: project.paymentCompletedAt ? "Vos crédits ont été ajoutés. Vous pouvez maintenant générer votre clip." : "Votre projet est conservé.",
       ...quote,
-      ...getClipAuthorization(quote.totalCredits, user.creditsRemaining, worker.paidGenerationAllowed, economics.enabled, quote.supported, quote.fitsSelectedPlan),
+      ...authorization,
+      allowed: authorization.allowed && scenarioValidated,
+      refusalCode: scenarioValidated ? authorization.refusalCode : "SCENARIO_VALIDATION_REQUIRED",
+      scenarioValidated,
+      storyboardUrl: scenarioVersion?.scenes[0] ? `/projects/${encodeURIComponent(project.id)}/storyboard/${encodeURIComponent(scenarioVersion.scenes[0].id)}` : `/projects/${encodeURIComponent(project.id)}/storyboard`,
     }, { headers: { "Cache-Control": "private, no-store" } });
   }
   let task = project.generationTasks[0];

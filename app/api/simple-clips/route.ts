@@ -11,7 +11,7 @@ import { prisma } from "@/lib/prisma";
 import { deleteStorage, putStorageBuffer, readStorageBuffer, storageKeyFromClientRef, toClientFileRef } from "@/lib/storage";
 import { syncGenerationTask } from "@/lib/seedance/service";
 import { signedDownloadUrl } from "@/lib/media-access";
-import { startPreparedSimpleClip } from "@/lib/simple-clip-production";
+import { createScenarioVersionFromLegacyProject } from "@/lib/scenario-studio-service";
 import { beginIdempotentRequest, enforceApiRateLimit, finishIdempotentRequest, readFormDataWithLimit, requireIdempotencyKey, sniffMime } from "@/lib/request-security";
 import { buildTikTokScenes, CLIP_OFFER, getClipAuthorization, getClipEconomics, quoteClip, validateClipScenario } from "@/lib/tiktok-offer";
 
@@ -27,7 +27,7 @@ function validateFileSize(size: number, kind: "photo" | "audio") {
 }
 
 async function projects(userId: string) {
-  return prisma.videoProject.findMany({ where: { userId, OR: [{ clipPlan: { not: null } }, { scenes: { some: { title: { startsWith: "Clip automatique" } } } }] }, orderBy: { createdAt: "desc" }, take: 100, include: { scenes: { orderBy: { order: "asc" } }, generationTasks: { orderBy: { createdAt: "desc" } }, finalExports: { orderBy: { createdAt: "desc" }, take: 1 }, montageJobs: { orderBy: { createdAt: "desc" }, take: 1 }, clipWorkerJobs: { orderBy: { createdAt: "desc" }, take: 1 } } });
+  return prisma.videoProject.findMany({ where: { userId, OR: [{ clipPlan: { not: null } }, { scenes: { some: { title: { startsWith: "Clip automatique" } } } }] }, orderBy: { createdAt: "desc" }, take: 100, include: { scenes: { orderBy: { order: "asc" } }, scenarioVersions: { orderBy: { version: "desc" }, take: 1, include: { scenes: { orderBy: { position: "asc" }, select: { id: true } } } }, generationTasks: { orderBy: { createdAt: "desc" } }, finalExports: { orderBy: { createdAt: "desc" }, take: 1 }, montageJobs: { orderBy: { createdAt: "desc" }, take: 1 }, clipWorkerJobs: { orderBy: { createdAt: "desc" }, take: 1 } } });
 }
 
 export async function GET(request: NextRequest) {
@@ -44,11 +44,12 @@ export async function GET(request: NextRequest) {
   const creations = rows.map((project) => {
     const finalExport = project.finalExports[0], montage = project.montageJobs[0], workerJob = project.clipWorkerJobs[0], tasks = project.generationTasks;
     const failed = tasks.some((task) => ["FAILED", "CANCELLED", "REFUNDED"].includes(task.status)) || ["FAILED", "REFUNDED"].includes(montage?.status || "") || ["FAILED", "REFUNDED"].includes(workerJob?.status || "") || finalExport?.status === "FAILED";
-    let scenarioValid = false;
-    try { validateClipScenario(project.scenes, project.billedDurationSeconds || project.durationSeconds || 0); scenarioValid = true; } catch { scenarioValid = false; }
+    const scenarioVersion = project.scenarioVersions[0];
+    let scenarioValid = scenarioVersion?.status === "VALIDATED";
+    try { validateClipScenario(project.scenes, project.billedDurationSeconds || project.durationSeconds || 0); } catch { scenarioValid = false; }
     const completed = finalExport?.status === "COMPLETED" && scenarioValid;
     const progress = completed ? 100 : failed ? 100 : workerJob?.progress ?? montage?.progress ?? 0;
-    return { id: project.id, title: project.title, createdAt: project.createdAt, status: project.status === "DRAFT" ? "Brouillon — en attente de confirmation" : failed ? "Échec" : completed ? "Prêt" : montage ? "Montage sur votre musique" : "Génération des scènes", error: workerJob?.errorMessage || null, progress, durationSeconds: project.billedDurationSeconds || project.durationSeconds || 0, sceneCount: project.scenes.length, scenarioValid, cost: project.maxBudgetCredits || 0, scenarioUrl: `/api/projects/${encodeURIComponent(project.id)}/scenario`, scenarioJsonUrl: `/api/projects/${encodeURIComponent(project.id)}/export?format=json`, scenarioPdfUrl: `/api/projects/${encodeURIComponent(project.id)}/export?format=pdf`, downloadUrl: completed ? signedDownloadUrl(finalExport.id) : null };
+    return { id: project.id, title: project.title, createdAt: project.createdAt, status: project.status === "DRAFT" ? scenarioValid ? "Scénario validé — prêt à créer" : "Scénario prêt à vérifier" : failed ? "Échec" : completed ? "Prêt" : montage ? "Montage sur votre musique" : "Génération des scènes", error: workerJob?.errorMessage || null, progress, durationSeconds: project.billedDurationSeconds || project.durationSeconds || 0, sceneCount: scenarioVersion?.scenes.length || project.scenes.length, scenarioValid, cost: project.maxBudgetCredits || 0, scenarioUrl: scenarioVersion?.scenes[0] ? `/projects/${encodeURIComponent(project.id)}/storyboard/${encodeURIComponent(scenarioVersion.scenes[0].id)}` : `/projects/${encodeURIComponent(project.id)}/storyboard`, scenarioJsonUrl: `/api/projects/${encodeURIComponent(project.id)}/export?format=json`, scenarioPdfUrl: `/api/projects/${encodeURIComponent(project.id)}/export?format=pdf`, downloadUrl: completed ? signedDownloadUrl(finalExport.id) : null };
   });
   return NextResponse.json({ success: true, creations }, { headers: { "Cache-Control": "private, no-store" } });
 }
@@ -131,17 +132,14 @@ export async function POST(request: NextRequest) {
       })),
     });
     preparedProject = true;
+    const scenarioVersion = await createScenarioVersionFromLegacyProject(project.id, user.id);
     const worker = await getMontageServiceStatus();
     const authorization = getClipAuthorization(quote.totalCredits, user.creditsRemaining, worker.paidGenerationAllowed, economics.enabled, quote.supported, quote.fitsSelectedPlan);
-    if (parsed.intent === "prepare_only" || !authorization.allowed) {
-      const response = { success: true, state: "draft", projectId: project.id, ...quote, ...authorization, scenarioSceneCount: scenario.length, requiresCheckout: authorization.missingCredits > 0 };
-      const status = authorization.missingCredits > 0 ? 402 : parsed.intent === "generate" && !worker.paidGenerationAllowed ? 503 : 201;
-      await finishIdempotentRequest(idem.record.id, status, response);
-      return NextResponse.json(response, { status });
-    }
-    const started = await startPreparedSimpleClip({ projectId: project.id, userId: user.id });
-    const response = { success: true, projectId: project.id, workerJobId: started.workerJob.id, workerWaking: started.dispatch?.waking ?? false, taskIds: started.tasks.map((task) => task.id), credits: quote.totalCredits, priceEur: quote.priceEur, durationSeconds: quote.normalizedSeconds, plan: quote.plan, truncated: false };
-    await finishIdempotentRequest(idem.record.id, 202, response); return NextResponse.json(response, { status: 202 });
+    // Toute création devient d'abord un brouillon vérifiable. Aucun appel vidéo
+    // ni aucune réservation de crédits n'a lieu avant validation explicite.
+    const response = { success: true, state: "draft", projectId: project.id, scenarioVersionId: scenarioVersion.id, storyboardUrl: scenarioVersion.firstSceneId ? `/projects/${encodeURIComponent(project.id)}/storyboard/${encodeURIComponent(scenarioVersion.firstSceneId)}` : null, ...quote, ...authorization, allowed: false, refusalCode: "SCENARIO_VALIDATION_REQUIRED", scenarioSceneCount: scenario.length, requiresCheckout: authorization.missingCredits > 0 };
+    await finishIdempotentRequest(idem.record.id, 201, response);
+    return NextResponse.json(response, { status: 201 });
   } catch (error) {
     // Indisponibilité de la génération payante : 503, projet conservé, aucun débit.
     if (error instanceof PaidGenerationUnavailableError) {

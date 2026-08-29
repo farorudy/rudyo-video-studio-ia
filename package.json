@@ -22,7 +22,8 @@
     "test:accented-slide": "tsx scripts/test-accented-slide.ts",
     "test:seedance": "tsx --test lib/clip-pricing.test.ts tests/seedance-*.test.ts tests/tiktok-*.test.ts tests/clip-*.test.ts",
     "test:security": "tsx --test tests/security-*.test.ts tests/http-range.test.ts",
-    "test": "npm run test:security && npm run test:seedance",
+    "test": "npm run test:security && npm run test:seedance && npm run test:scenario",
+    "test:scenario": "tsx --test tests/scenario-studio.test.ts tests/simple-pdf.test.ts",
     "test:e2e": "playwright test",
     "migrate:invalid-clips": "tsx scripts/migrate-invalid-clips.ts"
   },

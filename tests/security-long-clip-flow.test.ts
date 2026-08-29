@@ -10,7 +10,7 @@ test("le navigateur ne transmet ni montant ni nombre de crédits à Stripe", asy
     readFile(path.join(root, "app", "components", "SimpleClipCreator.tsx"), "utf8"),
     readFile(path.join(root, "app", "api", "billing", "create-checkout-session", "route.ts"), "utf8"),
   ]);
-  assert.match(creator, /JSON\.stringify\(\{ mode: "clip_topup", projectId: draft\.projectId \}\)/);
+  assert.match(creator, /JSON\.stringify\(\{ mode: "clip_topup", projectId \}\)/);
   assert.doesNotMatch(creator, /clip_topup[\s\S]{0,120}(amount|tokens|credits):/);
   assert.match(checkout, /quoteClip\(project\.billedDurationSeconds/);
   assert.match(checkout, /calculateMissingClipCredits\(quote\.totalCredits, current\.creditsRemaining\)/);
@@ -21,7 +21,8 @@ test("le projet privé est créé en brouillon avant le paiement", async () => {
   const route = await readFile(path.join(root, "app", "api", "simple-clips", "route.ts"), "utf8");
   assert.match(route, /status: "DRAFT"/);
   assert.match(route, /preparedProject = true/);
-  assert.match(route, /intent === "prepare_only"/);
+  assert.match(route, /createScenarioVersionFromLegacyProject/);
+  assert.doesNotMatch(route, /reserveCredits\(/);
 });
 
 test("le webhook est signé, idempotent, crédite une fois et ne lance pas Seedance", async () => {

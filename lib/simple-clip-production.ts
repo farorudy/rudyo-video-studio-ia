@@ -9,6 +9,7 @@ import { getMontageServiceStatus } from "@/lib/montage/worker-status";
 import { PaidGenerationUnavailableError } from "@/lib/montage/paid-generation-error";
 import { CLIP_OFFER, getClipEconomics, quoteClip, validateClipScenario } from "@/lib/tiktok-offer";
 import { type AutomaticClipPlanCode } from "@/lib/clip-pricing";
+import { projectScenarioFingerprint } from "@/lib/scenario-studio-service";
 
 export async function startPreparedSimpleClip(options: { projectId: string; userId: string }) {
   const project = await prisma.videoProject.findFirst({
@@ -18,6 +19,7 @@ export async function startPreparedSimpleClip(options: { projectId: string; user
       scenes: { orderBy: { order: "asc" } },
       generationTasks: { orderBy: { createdAt: "asc" } },
       clipWorkerJobs: { orderBy: { createdAt: "desc" }, take: 1 },
+      scenarioVersions: { where: { status: "VALIDATED" }, orderBy: { version: "desc" }, take: 1 },
     },
   });
   if (!project) throw new Error("Projet introuvable.");
@@ -31,6 +33,10 @@ export async function startPreparedSimpleClip(options: { projectId: string; user
   }
 
   if (!project.clipPlan || project.clipPlan === "CUSTOM") throw new Error("DURATION_TOO_LONG");
+  const validatedScenario = project.scenarioVersions[0];
+  if (!validatedScenario?.contentHash || validatedScenario.sourceFingerprint !== projectScenarioFingerprint(project)) {
+    throw new Error("SCENARIO_VALIDATION_REQUIRED");
+  }
   const selectedPlan = project.clipPlan as AutomaticClipPlanCode;
   const quote = quoteClip(project.billedDurationSeconds || project.durationSeconds || 0, 0, selectedPlan);
   if (!quote.supported) throw new Error("DURATION_TOO_LONG");
@@ -104,11 +110,13 @@ export async function startPreparedSimpleClip(options: { projectId: string; user
           idempotencyKey: `clip-worker:${project.id}`,
           outputPath,
           inputManifest: {
-            version: 1,
+            version: 2,
             jobId: workerJobId,
             userId: options.userId,
             projectId: project.id,
             finalExportId,
+            scenarioVersionId: validatedScenario.id,
+            scenarioContentHash: validatedScenario.contentHash,
             photoStorageKey: portrait.storageKey,
             audioStorageKey: audio.storageKey,
             audioStartSeconds: project.audioStartSeconds,

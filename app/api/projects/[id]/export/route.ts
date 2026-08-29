@@ -18,17 +18,26 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         scenes: { orderBy: { order: "asc" } },
         mediaAssets: { select: { id: true, type: true, fileName: true, mimeType: true, sizeBytes: true, createdAt: true } },
         finalExports: true,
+        scenarioVersions: { where: { status: "VALIDATED" }, orderBy: { version: "desc" }, take: 1, include: { references: true, scenes: { orderBy: { position: "asc" }, include: { shots: { orderBy: { position: "asc" }, include: { storyboard: true } } } } } },
       },
     });
     if (!project) return NextResponse.json({ success: false, error: "Projet introuvable." }, { status: 404 });
 
     const format = request.nextUrl.searchParams.get("format") === "pdf" ? "pdf" : "json";
+    const scenario = project.scenarioVersions[0];
+    if (!scenario) return NextResponse.json({ success: false, error: "Validez le scénario avant de l'exporter." }, { status: 409 });
     const baseName = safeBaseName(project.title);
     if (format === "pdf") {
       const pdf = createTextPdf(`Rudyo AI - ${project.title}`, [
         `Artiste: ${project.artistName}`,
         `Format: ${project.finalFormat}`,
-        ...project.scenes.flatMap((scene) => [`Plan ${scene.order}: ${scene.title}`, `Prompt: ${scene.prompt}`]),
+        `Version validee: ${scenario.version}`,
+        `Duree audio: ${(scenario.audioDurationMs / 1000).toFixed(3)} s`,
+        ...scenario.scenes.flatMap((scene) => [
+          `Scene ${scene.position}: ${scene.title}`,
+          `Narration: ${scene.narrativeContent}`,
+          ...scene.shots.flatMap((shot) => [`Plan ${shot.position} (${(shot.endMs - shot.startMs) / 1000} s): ${shot.shotFunction}`, `Prompt Seedance: ${shot.seedancePrompt}`]),
+        ]),
       ]);
       return new Response(pdf, {
         headers: {
@@ -40,7 +49,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       });
     }
 
-    return NextResponse.json({ success: true, exportedAt: new Date().toISOString(), project }, {
+    return NextResponse.json({ success: true, exportedAt: new Date().toISOString(), project: { id: project.id, title: project.title, artistName: project.artistName, finalFormat: project.finalFormat }, scenarioVersion: scenario }, {
       headers: {
         "Content-Disposition": `attachment; filename="rudyo-${baseName}-storyboard.json"`,
         "Cache-Control": "private, no-store",

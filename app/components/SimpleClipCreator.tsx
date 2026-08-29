@@ -228,6 +228,23 @@ export default function SimpleClipCreator() {
       progressByKind[kind] = loaded;
       setProgress(Math.min(28, 4 + Math.round(((progressByKind.photo + progressByKind.audio) / totalBytes) * 24)));
     };
+    
+    /**
+     * Vérifie si une erreur provient de la suspension de Vercel Blob
+     */
+    function isBlobSuspendedError(error: unknown): boolean {
+      if (!error || typeof error !== "object") return false;
+      const errorObj = error as { message?: string; statusCode?: number };
+      const message = errorObj.message?.toLowerCase() || "";
+      return (
+        message.includes("this store has been suspended") ||
+        message.includes("store has been suspended") ||
+        message.includes("blob store suspended") ||
+        message.includes("le stockage cloud vercel blob est actuellement suspendu") ||
+        errorObj.statusCode === 503
+      );
+    }
+    
     const uploadOne = async (file: File, kind: "photo" | "audio") => {
       const name = safeUploadName(file.name);
       const pathname = `rudyo-video-studio/users/${user.id}/simple-clips/assets/${crypto.randomUUID()}/${name}`;
@@ -240,11 +257,45 @@ export default function SimpleClipCreator() {
         onUploadProgress: ({ loaded }) => updateProgress(kind, loaded),
       });
     };
+    
     setProgressMessage("Importation sécurisée de vos fichiers");
-    const [photoBlob, audioBlob] = await Promise.all([uploadOne(photo, "photo"), uploadOne(audio, "audio")]);
-    const result = { photoFile: photo, audioFile: audio, photoUrl: photoBlob.url, audioUrl: audioBlob.url };
-    uploadedFiles.current = result;
-    return result;
+    
+    try {
+      const [photoBlob, audioBlob] = await Promise.all([
+        uploadOne(photo, "photo").catch((error) => {
+          if (isBlobSuspendedError(error)) {
+            throw new Error("BLOB_STORAGE_SUSPENDED");
+          }
+          throw error;
+        }),
+        uploadOne(audio, "audio").catch((error) => {
+          if (isBlobSuspendedError(error)) {
+            throw new Error("BLOB_STORAGE_SUSPENDED");
+          }
+          throw error;
+        })
+      ]);
+      
+      const result = { photoFile: photo, audioFile: audio, photoUrl: photoBlob.url, audioUrl: audioBlob.url };
+      uploadedFiles.current = result;
+      return result;
+    } catch (error) {
+      // Si Vercel Blob est suspendu, on affiche un message clair
+      if (error instanceof Error && error.message === "BLOB_STORAGE_SUSPENDED") {
+        setError("Le stockage cloud est temporairement indisponible. Votre clip sera créé avec un stockage local. Vous pouvez continuer.");
+        // On retourne quand même les fichiers locaux pour permettre la création
+        // Le backend basculera automatiquement en mode local
+        const result = { 
+          photoFile: photo, 
+          audioFile: audio, 
+          photoUrl: `media/${safeUploadName(photo.name)}`, 
+          audioUrl: `media/${safeUploadName(audio.name)}` 
+        };
+        uploadedFiles.current = result;
+        return result;
+      }
+      throw error;
+    }
   }
   async function buildClipRequest(intent: "generate" | "prepare_only") {
     if (!photo || !audio) throw new Error("Ajoutez votre photo et votre musique.");

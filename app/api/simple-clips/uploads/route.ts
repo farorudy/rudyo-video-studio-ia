@@ -2,8 +2,24 @@ import path from "node:path";
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
+import { disableCloudStorage } from "@/lib/storage";
 
 export const runtime = "nodejs";
+
+/**
+ * Vérifie si une erreur provient de Vercel Blob (store suspendu)
+ */
+function isVercelBlobSuspendedError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const errorObj = error as { message?: string; code?: string };
+  const message = errorObj.message?.toLowerCase() || "";
+  return (
+    message.includes("this store has been suspended") ||
+    message.includes("store has been suspended") ||
+    message.includes("blob store suspended") ||
+    errorObj.code === "FORBIDDEN"
+  );
+}
 
 const PHOTO_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const AUDIO_TYPES = ["audio/mpeg", "audio/wav", "audio/x-wav", "audio/mp4", "video/mp4"];
@@ -41,6 +57,22 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(response);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Upload indisponible.";
-    return NextResponse.json({ error: message }, { status: message === "Authentification requise." ? 401 : 400 });
+    
+    // Si c'est une erreur de suspension de Vercel Blob, désactiver le cloud storage
+    // et retourner un message clair
+    if (isVercelBlobSuspendedError(error)) {
+      disableCloudStorage();
+      return NextResponse.json(
+        { 
+          error: "Le stockage cloud Vercel Blob est actuellement suspendu. Votre fichier sera stocké localement pour cette session." 
+        },
+        { status: 503 }
+      );
+    }
+    
+    return NextResponse.json(
+      { error: message },
+      { status: message === "Authentification requise." ? 401 : 400 }
+    );
   }
 }

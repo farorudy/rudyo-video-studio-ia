@@ -72,13 +72,19 @@ export async function POST(request: NextRequest) {
       const refs = blobSchema.parse(body);
       photoKey = storageKeyFromClientRef(refs.photoBlobUrl);
       audioKey = storageKeyFromClientRef(refs.audioBlobUrl);
+      
+      // Validation des références : soit elles ont le préfixe cloud, soit ce sont des fichiers locaux
+      // On vérifie aussi qu'elles ne sont pas identiques
       const expectedPrefix = `users/${user.id}/simple-clips/assets/`;
-      if (!photoKey?.startsWith(expectedPrefix) || !audioKey?.startsWith(expectedPrefix) || photoKey === audioKey) throw new Error("Références de fichiers invalides.");
-      const [storedPhoto, storedAudio] = await Promise.all([readStorageBuffer(photoKey), readStorageBuffer(audioKey)]);
+      const photoValid = photoKey && (photoKey.startsWith(expectedPrefix) || !photoKey.includes("/"));
+      const audioValid = audioKey && (audioKey.startsWith(expectedPrefix) || !audioKey.includes("/"));
+      if (!photoValid || !audioValid || photoKey === audioKey) throw new Error("Références de fichiers invalides.");
+      // Assertion de non-nullité : photoKey et audioKey sont non-null ici (vérifié par photoValid/audioValid)
+      const [storedPhoto, storedAudio] = await Promise.all([readStorageBuffer(photoKey!), readStorageBuffer(audioKey!)]);
       if (!storedPhoto || !storedAudio) throw new Error("Les fichiers importés sont introuvables.");
       photoBuffer = storedPhoto; audioBuffer = storedAudio; photoName = refs.photoName; audioName = refs.audioName;
       directBlobUpload = true;
-      uploadedKeys.push(photoKey, audioKey);
+      uploadedKeys.push(photoKey!, audioKey!);
     } else {
       const form = await readFormDataWithLimit(request, MAX_REQUEST_BYTES), photo = form.get("photo"), audio = form.get("audio");
       if (!(photo instanceof File) || !(audio instanceof File)) throw new Error("Ajoutez votre photo et votre musique.");

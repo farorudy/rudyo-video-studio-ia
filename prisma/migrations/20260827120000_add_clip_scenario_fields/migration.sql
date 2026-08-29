@@ -1,0 +1,9 @@
+-- Intentionally empty migration.
+--
+-- The local directory for this migration was created without a SQL file and
+-- no matching Prisma schema change exists in Git history. The versioned clip
+-- scenario schema is introduced by the following migration:
+-- 20260828140000_add_versioned_scenario_studio.
+--
+-- Keeping this no-op migration preserves the chronological migration chain
+-- without duplicating tables, columns, indexes, enums, or foreign keys.

@@ -10,7 +10,7 @@
     "admin:secrets": "node scripts/generate-admin-secrets.mjs",
     "check:local": "node scripts/check-local-env.mjs",
     "build": "prisma generate && next build",
-    "build:vercel": "npm run build",
+    "build:vercel": "case \"$DATABASE_URL\" in postgresql://*|postgres://*) ;; *) export DATABASE_URL=\"$RUDYO_DB_DATABASE_URL\" ;; esac; prisma migrate deploy && npm run build",
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",

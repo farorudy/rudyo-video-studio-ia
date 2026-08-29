@@ -183,12 +183,12 @@ export default function StudioPage() {
               <p className="mt-3 text-sm text-slate-300">
                 Vos crédits servent à générer vos contenus IA.
               </p>
-              <a
+              <Link
                 href="/credits"
                 className="mt-5 inline-flex rounded-2xl bg-cyan-400 px-5 py-3 font-bold text-slate-950 hover:bg-cyan-300"
               >
                 Acheter des crédits
-              </a>
+              </Link>
             </div>
           </div>
         </section>
@@ -349,12 +349,12 @@ export default function StudioPage() {
             </div>
 
             {!hasEnoughCredits ? (
-              <a
+              <Link
                 href="/credits"
                 className="mt-6 flex w-full justify-center rounded-2xl bg-emerald-400 px-5 py-4 text-center font-black text-slate-950 hover:bg-emerald-300"
               >
                 Acheter des crédits
-              </a>
+              </Link>
             ) : (
               <button
                 type="button"

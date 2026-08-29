@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 
 type BalanceResponse = {
   success?: boolean;
@@ -93,18 +94,18 @@ export default function CreditDashboard() {
           </div>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
-          <a
+          <Link
             href="/credits/acheter"
             className="rounded-2xl bg-emerald-500 px-5 py-3 text-center text-sm font-semibold text-slate-950 transition hover:bg-emerald-400"
           >
             Acheter des crédits
-          </a>
-          <a
+          </Link>
+          <Link
             href="/credits/history"
             className="rounded-2xl border border-slate-700 bg-slate-900 px-5 py-3 text-center text-sm font-semibold text-slate-100 transition hover:bg-slate-800"
           >
             Voir l'historique
-          </a>
+          </Link>
         </div>
       </div>
 

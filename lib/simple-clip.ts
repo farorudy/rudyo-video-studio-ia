@@ -4,7 +4,14 @@ import { buildTikTokScenes, CLIP_OFFER, getClipAuthorization, quoteClip } from "
 export const SIMPLE_CLIP_DURATION_SECONDS = CLIP_OFFER.maxDurationSeconds;
 export type SimpleClipOptions = { ratio: "16:9" | "9:16" | "1:1"; quality: "standard" | "high"; style?: string; subtitles: boolean };
 
-export function getSimpleClipAuthorization(totalCost: number, currentBalance: number | null, workerAvailable: boolean) { return getClipAuthorization(totalCost, currentBalance, workerAvailable); }
+export function getSimpleClipAuthorization(
+  totalCost: number, 
+  currentBalance: number | null, 
+  workerAvailable: boolean,
+  storageAvailable: boolean = true
+) { 
+  return getClipAuthorization(totalCost, currentBalance, workerAvailable && storageAvailable); 
+}
 
 export function getSimpleClipQuote(_options: SimpleClipOptions, audioDurationSeconds = 15, audioStartSeconds = 0) {
   const commercial = quoteClip(audioDurationSeconds, audioStartSeconds);

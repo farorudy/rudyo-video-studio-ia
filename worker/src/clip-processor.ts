@@ -19,8 +19,26 @@ export class ClipValidationError extends Error {
   }
 }
 
-class ClipTerminalError extends Error {
+export class ClipTerminalError extends Error {
   constructor(readonly code: string, message: string) { super(message); this.name = "ClipTerminalError"; }
+}
+
+/**
+ * Vérifie si une erreur est liée à un problème de stockage suspendu
+ * et la convertit en ClipTerminalError si nécessaire
+ */
+function checkStorageError(error: unknown): error is ClipTerminalError {
+  if (!(error instanceof Error)) return false;
+  
+  const message = error.message.toUpperCase();
+  if (message.startsWith("STORAGE_")) {
+    const code = message.slice(8); // Remove "STORAGE_" prefix
+    // Erreurs de stockage qui doivent être terminales et remboursées
+    if (["STORE_SUSPENDED", "AUTHENTICATION_FAILED", "QUOTA_EXCEEDED", "NOT_CONFIGURED"].includes(code)) {
+      throw new ClipTerminalError(`BLOB_${code}`, `Le stockage de vos fichiers est temporairement indisponible.`);
+    }
+  }
+  return false;
 }
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -138,8 +156,14 @@ async function renderRealClip(job: ClipWorkerJob, manifest: ClipWorkerManifest, 
     await downloadSeedanceVideo(remote.content.video_url, localVideo);
     const checked = await validateVideo(localVideo);
     if (Math.abs(checked.duration - scene.durationSeconds) > MAX_DURATION_DRIFT_SECONDS) throw new ClipValidationError(`La scène ${scene.order + 1} dure ${checked.duration.toFixed(1)} s au lieu de ${scene.durationSeconds} s.`);
-    const uploaded = await uploadPrivateVideo(sceneStorageKey, localVideo);
-    await completeClipGenerationTask({ job, taskId: stored.id, sceneId: scene.id, remote, providerVideoUrl: remote.content.video_url, permanentVideoUrl: uploaded.url, tokens: remote.usage?.completion_tokens || remote.usage?.total_tokens || 0 });
+    try {
+      const uploaded = await uploadPrivateVideo(sceneStorageKey, localVideo);
+      await completeClipGenerationTask({ job, taskId: stored.id, sceneId: scene.id, remote, providerVideoUrl: remote.content.video_url, permanentVideoUrl: uploaded.url, tokens: remote.usage?.completion_tokens || remote.usage?.total_tokens || 0 });
+    } catch (error) {
+      // Vérifie si c'est une erreur de stockage suspendu
+      checkStorageError(error);
+      throw error;
+    }
     completed += 1;
     await setClipStage(job.id, "RENDERING", 20 + Math.round((completed / manifest.scenes.length) * 55), `Scène ${completed}/${manifest.scenes.length} terminée`);
     return localVideo;
@@ -169,10 +193,16 @@ export async function processClipJob(job: ClipWorkerJob) {
     await setClipStage(job.id, "PREPARING", 15, "Téléchargement de la photo et de la musique");
     const photo = path.join(directory, "photo-input");
     const audio = path.join(directory, "audio-input");
-    await Promise.all([
-      downloadPrivateBlob(manifest.photoStorageKey, photo),
-      downloadPrivateBlob(manifest.audioStorageKey, audio),
-    ]);
+    try {
+      await Promise.all([
+        downloadPrivateBlob(manifest.photoStorageKey, photo),
+        downloadPrivateBlob(manifest.audioStorageKey, audio),
+      ]);
+    } catch (error) {
+      // Vérifie si c'est une erreur de stockage suspendu
+      checkStorageError(error);
+      throw error;
+    }
     const output = path.join(directory, "clip.mp4");
     await setClipStage(job.id, "RENDERING", 20, config.mockMode ? "Création du clip simulé avec FFmpeg" : "Création des scènes Seedance");
     const rendered = config.mockMode
@@ -193,8 +223,14 @@ export async function processClipJob(job: ClipWorkerJob) {
       );
     }
     await setClipStage(job.id, "UPLOADING", 95, "Enregistrement du MP4 privé");
-    const blob = await uploadPrivateVideo(manifest.outputStorageKey, output);
-    await completeClipJob(job, manifest, blob.url);
+    try {
+      const blob = await uploadPrivateVideo(manifest.outputStorageKey, output);
+      await completeClipJob(job, manifest, blob.url);
+    } catch (error) {
+      // Vérifie si c'est une erreur de stockage suspendu
+      checkStorageError(error);
+      throw error;
+    }
     console.log(JSON.stringify({ event: config.mockMode ? "clip_mock_completed" : "clip_seedance_completed", jobId: job.id, durationSeconds: Number((await probeMedia(output)).format?.duration || 0), sizeBytes: outputStats.size }));
   } finally {
     clearInterval(heartbeatTimer);

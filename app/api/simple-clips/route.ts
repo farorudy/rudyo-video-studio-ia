@@ -14,6 +14,7 @@ import { signedDownloadUrl } from "@/lib/media-access";
 import { createScenarioVersionFromLegacyProject } from "@/lib/scenario-studio-service";
 import { beginIdempotentRequest, enforceApiRateLimit, finishIdempotentRequest, readFormDataWithLimit, requireIdempotencyKey, sniffMime } from "@/lib/request-security";
 import { buildTikTokScenes, CLIP_OFFER, getClipAuthorization, getClipEconomics, quoteClip, validateClipScenario } from "@/lib/tiktok-offer";
+import { isStorageAvailable } from "@/lib/server/private-storage";
 
 export const runtime = "nodejs";
 const MAX_REQUEST_BYTES = 121 * 1024 * 1024;
@@ -140,10 +141,18 @@ export async function POST(request: NextRequest) {
     preparedProject = true;
     const scenarioVersion = await createScenarioVersionFromLegacyProject(project.id, user.id);
     const worker = await getMontageServiceStatus();
-    const authorization = getClipAuthorization(quote.totalCredits, user.creditsRemaining, worker.paidGenerationAllowed, economics.enabled, quote.supported, quote.fitsSelectedPlan);
+    const storageAvailable = await isStorageAvailable();
+    const authorization = getClipAuthorization(quote.totalCredits, user.creditsRemaining, worker.paidGenerationAllowed && storageAvailable, economics.enabled, quote.supported, quote.fitsSelectedPlan);
     // Toute création devient d'abord un brouillon vérifiable. Aucun appel vidéo
     // ni aucune réservation de crédits n'a lieu avant validation explicite.
-    const response = { success: true, state: "draft", projectId: project.id, scenarioVersionId: scenarioVersion.id, storyboardUrl: scenarioVersion.firstSceneId ? `/projects/${encodeURIComponent(project.id)}/storyboard/${encodeURIComponent(scenarioVersion.firstSceneId)}` : null, ...quote, ...authorization, allowed: false, refusalCode: "SCENARIO_VALIDATION_REQUIRED", scenarioSceneCount: scenario.length, requiresCheckout: authorization.missingCredits > 0 };
+    
+    // Si le stockage n'est pas disponible, ajouter un code de refus spécifique
+    if (!storageAvailable && authorization.allowed) {
+      authorization.allowed = false;
+      authorization.refusalCode = "STORAGE_UNAVAILABLE";
+    }
+    
+    const response = { success: true, state: "draft", projectId: project.id, scenarioVersionId: scenarioVersion.id, storyboardUrl: scenarioVersion.firstSceneId ? `/projects/${encodeURIComponent(project.id)}/storyboard/${encodeURIComponent(scenarioVersion.firstSceneId)}` : null, ...quote, ...authorization, allowed: false, refusalCode: authorization.refusalCode === null ? "SCENARIO_VALIDATION_REQUIRED" : authorization.refusalCode, scenarioSceneCount: scenario.length, requiresCheckout: authorization.missingCredits > 0, storageAvailable };
     await finishIdempotentRequest(idem.record.id, 201, response);
     return NextResponse.json(response, { status: 201 });
   } catch (error) {

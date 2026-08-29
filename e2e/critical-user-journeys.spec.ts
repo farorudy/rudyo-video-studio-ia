@@ -6,7 +6,7 @@ test("la vraie page d’accueil expose la navigation Rudyo AI et uniquement l’
   await expect(page.getByRole("link", { name: "Rudyo AI" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Se connecter", exact: true }).first()).toHaveAttribute("href", "/login");
   await expect(page.getByRole("link", { name: "Créer un compte", exact: true }).first()).toHaveAttribute("href", "/inscription");
-  await expect(page.getByText("Créez votre compte et commencez votre premier clip avec Rudyo AI.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Créez votre clip jusqu’à 7 minutes" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Session Rudyo" })).toHaveCount(0);
   await expect(page.locator('form input[type="email"]')).toHaveCount(0);
 });
@@ -50,7 +50,7 @@ test("l’inscription exige la vérification du code OTP", async ({ page }) => {
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true }) });
   });
   await page.goto("/inscription");
-  await page.getByLabel("Nom complet").fill("Artiste Test");
+  await page.getByLabel("Prénom").fill("Artiste");
   await page.getByLabel("Adresse e-mail").fill("artiste@example.com");
   await page.getByRole("checkbox").check();
   await page.getByRole("button", { name: "Créer mon compte gratuitement" }).click();
@@ -58,7 +58,7 @@ test("l’inscription exige la vérification du code OTP", async ({ page }) => {
   await page.getByLabel("Code à six chiffres").fill("123456");
   await page.getByRole("button", { name: "Vérifier et continuer" }).click();
   await expect(page).toHaveURL(/\/dashboard$/);
-  expect(requestedIdentity).toMatchObject({ email: "artiste@example.com", name: "Artiste Test" });
+  expect(requestedIdentity).toMatchObject({ email: "artiste@example.com", name: "Artiste" });
   expect(verifiedChallenge).toEqual({ email: "artiste@example.com", otp: "123456" });
 });
 

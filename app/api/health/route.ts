@@ -7,7 +7,7 @@ import {
   resolveDefaultAiProvider,
   resolveModelForProvider,
 } from "@/lib/ai-provider";
-import { isCloudStorageEnabled } from "@/lib/storage";
+import { getStorageHealth, type StorageHealthStatus } from "@/lib/server/private-storage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,6 +36,31 @@ function createCheck(name: string, status: CheckStatus, message: string) {
   return { name, status, message };
 }
 
+/**
+ * Convertit un statut de santé de stockage en message utilisateur
+ */
+function getStorageMessage(health: StorageHealthStatus): string {
+  if (health.available) {
+    return "Stockage cloud Vercel Blob activé.";
+  }
+  
+  switch (health.code) {
+    case 'NOT_CONFIGURED':
+      return "Stockage cloud non configuré : BLOB_READ_WRITE_TOKEN manquant. Utilisation du stockage local.";
+    case 'STORE_SUSPENDED':
+      return "Stockage cloud temporairement suspendu. Utilisation du stockage local.";
+    case 'AUTHENTICATION_FAILED':
+      return "Authentification du stockage cloud échouée. Utilisation du stockage local.";
+    case 'QUOTA_EXCEEDED':
+      return "Quota du stockage cloud dépassé. Utilisation du stockage local.";
+    case 'UNREACHABLE':
+      return "Stockage cloud inaccessible. Utilisation du stockage local.";
+    case 'UNKNOWN':
+    default:
+      return health.error ? `Stockage cloud indisponible : ${health.error}` : "Stockage cloud indisponible. Utilisation du stockage local.";
+  }
+}
+
 export async function GET() {
   const isProduction = process.env.NODE_ENV === "production";
   const localSession =
@@ -56,6 +81,18 @@ export async function GET() {
       : provider === "openai"
         ? Boolean(process.env.OPENAI_API_KEY)
         : true;
+
+  // Contrôle de santé du stockage
+  let storageHealth: StorageHealthStatus;
+  try {
+    storageHealth = await getStorageHealth();
+  } catch (error) {
+    // Si le contrôle échoue complètement, considérer comme UNKNOWN
+    storageHealth = { available: false, code: 'UNKNOWN', error: String(error) };
+  }
+
+  const storageStatus: CheckStatus = storageHealth.available ? "ok" : storageHealth.code === "NOT_CONFIGURED" ? "warning" : "error";
+  const storageMessage = getStorageMessage(storageHealth);
 
   const checks = [
     createCheck(
@@ -85,10 +122,8 @@ export async function GET() {
     ),
     createCheck(
       "storage",
-      "ok",
-      isCloudStorageEnabled()
-        ? "Stockage cloud Vercel Blob activé."
-        : "Stockage local dans media/*.",
+      storageStatus,
+      storageMessage,
     ),
     createCheck(
       "video",

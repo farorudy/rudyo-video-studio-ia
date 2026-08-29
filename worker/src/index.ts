@@ -6,7 +6,7 @@ import { processClaimedJob } from "./processor.js";
 import { processClaimedClipJob } from "./clip-processor.js";
 import { startHealthServer } from "./server.js";
 import { checkFfmpeg } from "./media.js";
-import { checkStorage } from "./storage.js";
+import { getStorageHealth, type StorageHealth } from "./storage.js";
 import { cleanupExpiredSystemTests } from "./cleanup.js";
 
 let stopping = false;
@@ -58,15 +58,26 @@ async function workerLoop(slot: number) {
 async function signalWorker(status: "ONLINE" | "DEGRADED" | "STOPPING" = "ONLINE") {
   let ffmpegAvailable = false;
   let databaseAvailable = false;
-  let storageAvailable = false;
+  let storageHealth: StorageHealth | null = null;
   let errorCode: string | null = null;
-  const checks = await Promise.allSettled([checkFfmpeg(), checkDatabase(), checkStorage()]);
+  
+  const checks = await Promise.allSettled([checkFfmpeg(), checkDatabase(), getStorageHealth()]);
   ffmpegAvailable = checks[0].status === "fulfilled";
   databaseAvailable = checks[1].status === "fulfilled";
-  storageAvailable = checks[2].status === "fulfilled";
+  
+  if (checks[2].status === "fulfilled") {
+    storageHealth = checks[2].value;
+  } else {
+    // Si le check a échoué, on considère le stockage comme indisponible
+    storageHealth = { available: false, code: "UNREACHABLE" };
+  }
+  
+  const storageAvailable = storageHealth.available;
+  
   if (!ffmpegAvailable) errorCode = "FFMPEG_UNAVAILABLE";
   else if (!databaseAvailable) errorCode = "DATABASE_UNAVAILABLE";
-  else if (!storageAvailable) errorCode = "STORAGE_UNAVAILABLE";
+  else if (!storageAvailable) errorCode = storageHealth.code;
+  
   const filesystem = await statfs(config.tempDir).catch(() => null);
   const actualStatus = status === "STOPPING" ? status : errorCode ? "DEGRADED" : "ONLINE";
   if (databaseAvailable) {

@@ -60,8 +60,8 @@ export function StoryboardGeneratorForm() {
       format:
         (formData.get("format") as "vertical" | "horizontal" | "square") ||
         "horizontal",
-      style: (formData.get("style") as string) || "cinéma",
-      tone: (formData.get("tone") as string) || "professionnel",
+      style: (formData.get("style") as StoryboardGenerateRequest["style"]) || "cinéma",
+      tone: (formData.get("tone") as StoryboardGenerateRequest["tone"]) || "professionnel",
       customInstructions: formData.get("instructions") as string,
     };
 

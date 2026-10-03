@@ -28,7 +28,7 @@ export async function generateWithMistral(
       responseFormat: { type: "json_object" },
     });
 
-    const rawContent = response.choices?.[0]?.message.content;
+    const rawContent = response.choices?.[0]?.message?.content;
     const content = typeof rawContent === "string"
       ? rawContent
       : rawContent?.map((part) => part.type === "text" ? part.text : "").join("\n");

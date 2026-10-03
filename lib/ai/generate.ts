@@ -344,7 +344,7 @@ export async function generateStoryboard(
 
   try {
     console.log(
-      `[Storyboard] Generating with ${request.mode} mode (${request.provider ?? "primary"})`,
+      `[Storyboard] Generating with ${request.mode} mode`,
     );
     const response = await primaryProvider(request);
     return {

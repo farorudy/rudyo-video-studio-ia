@@ -2,10 +2,6 @@ import OpenAI from "openai";
 import { GenerateRequest, AIResponse, StoryboardJSON } from "../types";
 import { getSystemPrompt, buildStoryboardPrompt } from "../prompt-templates";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-
 export async function generateWithOpenAI(
   request: GenerateRequest,
 ): Promise<AIResponse> {
@@ -14,6 +10,7 @@ export async function generateWithOpenAI(
   }
 
   try {
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const systemPrompt = getSystemPrompt("creative");
     const userPrompt = buildStoryboardPrompt(request);
 

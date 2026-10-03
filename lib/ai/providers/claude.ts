@@ -2,10 +2,6 @@ import Anthropic from "@anthropic-ai/sdk";
 import { GenerateRequest, AIResponse, StoryboardJSON } from "../types";
 import { getSystemPrompt, buildStoryboardPrompt } from "../prompt-templates";
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
-
 export async function generateWithClaude(
   request: GenerateRequest,
 ): Promise<AIResponse> {
@@ -14,6 +10,7 @@ export async function generateWithClaude(
   }
 
   try {
+    const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
     const systemPrompt = getSystemPrompt("expert");
     const userPrompt = buildStoryboardPrompt(request);
 

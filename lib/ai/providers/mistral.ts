@@ -2,10 +2,6 @@ import { Mistral } from "@mistralai/mistralai";
 import { GenerateRequest, AIResponse, StoryboardJSON } from "../types";
 import { getSystemPrompt, buildStoryboardPrompt } from "../prompt-templates";
 
-const mistral = new Mistral({
-  apiKey: process.env.MISTRAL_API_KEY,
-});
-
 export async function generateWithMistral(
   request: GenerateRequest,
 ): Promise<AIResponse> {
@@ -14,6 +10,7 @@ export async function generateWithMistral(
   }
 
   try {
+    const mistral = new Mistral({ apiKey: process.env.MISTRAL_API_KEY });
     const systemPrompt = getSystemPrompt("sovereign");
     const userPrompt = buildStoryboardPrompt(request);
 
@@ -28,8 +25,11 @@ export async function generateWithMistral(
       responseFormat: { type: "json_object" },
     });
 
-    const content = response.choices[0].message.content;
-    if (!content) {
+    const rawContent = response.choices?.[0]?.message?.content;
+    const content = typeof rawContent === "string"
+      ? rawContent
+      : rawContent?.map((part) => part.type === "text" ? part.text : "").join("\n");
+    if (!content?.trim()) {
       throw new Error("Empty response from Mistral");
     }
 

@@ -65,9 +65,16 @@ Variables d'environnement importantes :
 - `OLLAMA_BASE_URL` et `OLLAMA_MODEL` (optionnel): amélioration locale via Ollama. L'application reste utilisable sans eux.
 - `DEFAULT_AI_PROVIDER` (optionnel): `ollama`, `openai` ou `blackbox`.
 - `OPENAI_API_KEY` et `OPENAI_MODEL` (optionnel): génération storyboard / prompts via OpenAI.
+- `OPENAI_DIAGNOSTIC_ADMIN_TOKEN` (serveur uniquement): jeton aléatoire d’au moins 32 caractères pour protéger le test administrateur OpenAI.
 - `OPENAI_BASE_URL` (optionnel): base personnalisée pour OpenAI-compatible.
 - `BLACKBOX_API_KEY` et `BLACKBOX_MODEL` (optionnel): génération storyboard / prompts via Blackbox AI.
 - `BLACKBOX_BASE_URL` (optionnel): base personnalisée pour Blackbox AI (par défaut `https://api.blackbox.ai`).
+
+### Diagnostic OpenAI du tutorat
+
+Configurez `OPENAI_API_KEY`, `OPENAI_MODEL` et `OPENAI_DIAGNOSTIC_ADMIN_TOKEN` dans Vercel Production. Le jeton administrateur peut être généré avec `openssl rand -hex 32`; ne le préfixez jamais par `NEXT_PUBLIC_` et ne le transmettez pas au portail apprenant.
+
+Après déploiement, ouvrez `/admin/openai-test` et saisissez ce jeton pour envoyer « Réponds uniquement par OK. ». Le diagnostic appelle le même endpoint Chat Completions que `/api/tutor`, sans jeton Supabase, accès à une leçon ni réservation de quota. Il retourne seulement le résultat, le modèle et l’usage en tokens, ou un code d’erreur expurgé. Il ne change pas `AI_PROVIDER`.
 
 ## Déploiement en ligne (Vercel)
 

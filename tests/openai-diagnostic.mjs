@@ -54,4 +54,8 @@ const failure = await response.text();
 assert.match(failure, /OPENAI_AUTH_FAILED/);
 assert.ok(!failure.includes("secret provider details"));
 
-console.log("5 contrôles réussis : admin, origine, clé, modèle Chat Completions et erreur expurgée.");
+response = await handleOpenAiDiagnostic(request(), { env, send });
+assert.equal(response.status, 429);
+assert.equal(calls, 1);
+
+console.log("6 contrôles réussis : admin, origine, clé, modèle, erreur expurgée et limite de fréquence.");

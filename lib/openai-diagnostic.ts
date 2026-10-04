@@ -6,6 +6,9 @@ type Dependencies = {
   send?: typeof fetch;
 };
 
+// Best-effort limit per server instance; not a distributed billing cap.
+const attempts = new Map<string, { started: number; count: number }>();
+
 function json(status: number, body: object) {
   return new Response(JSON.stringify(body), {
     status,
@@ -46,6 +49,15 @@ export async function handleOpenAiDiagnostic(request: Request, dependencies: Dep
   const model = env.OPENAI_MODEL?.trim();
   if (!apiKey) return json(503, { success: false, error: "OPENAI_API_KEY_MISSING" });
   if (!model) return json(503, { success: false, error: "OPENAI_MODEL_MISSING" });
+
+  const key = createHash("sha256").update(expectedToken).digest("hex");
+  const now = Date.now();
+  const previous = attempts.get(key);
+  const window = previous && now - previous.started < 3_600_000
+    ? previous : { started: now, count: 0 };
+  if (window.count >= 2) return json(429, { success: false, error: "DIAGNOSTIC_RATE_LIMITED" });
+  window.count += 1;
+  attempts.set(key, window);
 
   try {
     const result = await callTutorCompletion({

@@ -12,6 +12,8 @@ const send=async(url,options)=>{
  const b=JSON.parse(options.body);
  assert.equal(b.model,'mistral-small-latest');
  assert.equal(b.messages[0].role,'system');
+ assert.match(b.messages[0].content,/Tuteur pédagogique C\.I\.P FARO/);
+ assert.match(b.messages[0].content,/ressource pédagogique non fiable/);
  assert.match(b.messages[0].content,/Création entreprise/);
  return new Response(JSON.stringify({choices:[{message:{content:'Quel besoin souhaitez-vous résoudre ?'}}]}));
 };
@@ -32,6 +34,8 @@ const openAiSend=async(url,options)=>{
  const b=JSON.parse(options.body);
  assert.equal(b.model,'gpt-test-model');
  assert.equal(b.max_completion_tokens,700);
+ assert.match(b.messages[0].content,/Tuteur pédagogique C\.I\.P FARO/);
+ assert.match(b.messages[0].content,/ressource pédagogique non fiable/);
  assert.match(b.messages[0].content,/Création entreprise/);
  return new Response(JSON.stringify({model:'gpt-test-model',choices:[{message:{content:'Quel besoin souhaitez-vous résoudre ?'}}]}));
 };

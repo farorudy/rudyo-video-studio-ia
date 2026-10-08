@@ -12,7 +12,6 @@ import {
   Play,
   Radio,
   Sparkles,
-  Upload,
   Wand2,
   Waves,
 } from "lucide-react";
@@ -91,6 +90,17 @@ export default function HomePage() {
   const [emailStatus, setEmailStatus] = useState("");
   const [error, setError] = useState("");
   const [copied, setCopied] = useState("");
+
+  const briefReady = Boolean(project.titre.trim() && project.description.trim());
+  const enoughCredits = Boolean(user && user.credits.balance >= CREDIT_COSTS.storyboard_complete);
+  const nextAction = generating ? "Préparation du storyboard en cours…" : creatingVideo ? "Montage vidéo en cours…" : !briefReady ? "Complétez le titre et la description, ou choisissez un exemple." : !user ? "Votre brief est prêt. Connectez-vous pour continuer." : !enoughCredits ? "Votre solde est insuffisant pour ce storyboard." : storyboard ? "Storyboard disponible : copiez les prompts ou téléchargez le résultat." : "Votre brief est prêt : vous pouvez générer le storyboard.";
+  function downloadStoryboard() {
+    if (!storyboard) return;
+    const blob = new Blob([JSON.stringify(storyboard,null,2)],{type:"application/json;charset=utf-8"});
+    const url=URL.createObjectURL(blob);
+    const anchor=document.createElement("a");anchor.href=url;anchor.download="rudyo-storyboard.json";anchor.click();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }
 
   const selectedTypeLabel = useMemo(
     () => videoTypes.find((type) => type.id === selectedType)?.title ?? "",
@@ -171,6 +181,7 @@ export default function HomePage() {
       return;
     }
 
+    if(!briefReady){setError("Renseignez un titre et une description pour préparer votre storyboard.");return;}
     if(user.credits.balance < CREDIT_COSTS.storyboard_complete){setError("Crédits insuffisants pour ce storyboard.");return;}
     if(!window.confirm(`Créer le storyboard pour ${CREDIT_COSTS.storyboard_complete} crédits ?`)) return;
     setGenerating(true);
@@ -544,6 +555,8 @@ export default function HomePage() {
                   Titre du projet
                 </span>
                 <input
+                  placeholder="Ex. : Présenter mon activité en 30 secondes"
+                  maxLength={200}
                   value={project.titre}
                   onChange={(event) =>
                     setProject({ ...project, titre: event.target.value })
@@ -558,6 +571,7 @@ export default function HomePage() {
                   Description artistique
                 </span>
                 <textarea
+                  placeholder="Décrivez votre message, l’ambiance souhaitée et ce que le public doit retenir."
                   value={project.description}
                   onChange={(event) =>
                     setProject({ ...project, description: event.target.value })
@@ -607,19 +621,20 @@ export default function HomePage() {
               </label>
             </div>
 
-            <div className="mb-5 flex flex-wrap items-center gap-3"><span className="text-sm text-slate-400">Partir d’un exemple :</span>{briefExamples.map(example=><button key={example.label} type="button" disabled={generating||creatingVideo} className="rounded-full border border-white/20 px-4 py-2 text-sm hover:border-emerald-300 disabled:opacity-50" onClick={()=>{setProject({...initialProject,titre:example.titre,description:example.description,publicCible:example.publicCible});setSelectedType(example.type);setStoryboard(null);setVideoUrl("");setError("");}}>{example.label}</button>)}</div>
+            <div className="mb-5 flex flex-wrap items-center gap-3"><span className="text-sm text-slate-400">Partir d’un exemple :</span>{briefExamples.map(example=><button key={example.label} type="button" disabled={generating||creatingVideo} className="rounded-full border border-white/20 px-4 py-2 text-sm hover:border-emerald-300 disabled:opacity-50" onClick={()=>{if((project.titre.trim()||project.description.trim())&&!window.confirm("Remplacer votre brief par cet exemple ?"))return;setProject({...initialProject,titre:example.titre,description:example.description,publicCible:example.publicCible});setSelectedType(example.type);setStoryboard(null);setVideoUrl("");setError("");}}>{example.label}</button>)}</div>
             <p className="mb-4 text-sm text-slate-300">Étape 1 : storyboard et prompts, {CREDIT_COSTS.storyboard_complete} crédits. Étape 2 : montage MP4 séparé, coût et disponibilité à vérifier. Le storyboard seul ne produit pas une vidéo. Solde : {user ? `${user.credits.balance} crédits` : "connexion requise"}.</p>
-            <p role="status" aria-live="polite">{generating ? "Préparation du storyboard… Vous pouvez patienter sur cette page." : creatingVideo ? "Montage vidéo en cours…" : "Prêt pour votre prochaine action."}</p>
+            <p role="status" aria-live="polite">{nextAction}</p>
             <div className="my-4 flex gap-4"><Link href="/projects">Historique des projets</Link><Link href="/credits/history">Historique des crédits</Link></div>
             {error ? (
-              <p className="mt-5 rounded-lg border border-red-300/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+              <p role="alert" className="mt-5 rounded-lg border border-red-300/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">
                 {error} Vous pouvez corriger votre saisie et réessayer. Les champs restent conservés.
               </p>
             ) : null}
 
+            {!user ? <Link href="/login" className="mt-4 inline-flex rounded-lg border border-emerald-300/50 px-5 py-3 font-bold text-emerald-200">Se connecter pour continuer</Link> : !enoughCredits ? <Link href="/credits" className="mt-4 inline-flex underline">Consulter les crédits</Link> : null}
             <button
               type="submit"
-              disabled={generating || creatingVideo || !user}
+              disabled={generating || creatingVideo || !user || !briefReady || !enoughCredits}
               className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-300 px-5 py-4 font-black text-slate-950 transition hover:bg-emerald-200 disabled:cursor-wait disabled:opacity-70 sm:w-auto"
             >
               {generating ? (
@@ -628,7 +643,7 @@ export default function HomePage() {
                 <Wand2 className="h-5 w-5" />
               )}
               {generating
-              ? "Rudyo prépare votre clip..."
+              ? "Préparation du storyboard…"
                 : user
                   ? "Générer le storyboard"
                   : "Connectez-vous pour générer"}
@@ -805,14 +820,8 @@ export default function HomePage() {
                 </div>
 
                 <div className="mt-6 grid gap-3 sm:grid-cols-3">
-                  <button className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-slate-950 px-4 py-3 font-bold text-slate-300">
-                    <Download className="h-4 w-4" />
-                    Export PDF
-                  </button>
-                  <button className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-slate-950 px-4 py-3 font-bold text-slate-300">
-                    <Upload className="h-4 w-4" />
-                    Préparer le montage
-                  </button>
+                  <button type="button" onClick={downloadStoryboard} className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-slate-950 px-4 py-3 font-bold text-slate-300"><Download className="h-4 w-4"/>Télécharger le storyboard (JSON)</button>
+                  <a href="#montage-aide" className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-slate-950 px-4 py-3 font-bold text-slate-300">Comprendre le montage</a>
                   <button
                     type="button"
                     onClick={handleCreateVideo}
@@ -828,6 +837,7 @@ export default function HomePage() {
                   </button>
                 </div>
 
+                <p id="montage-aide" className="mt-4 text-sm leading-6 text-slate-400">Le storyboard est un document de préparation. Le montage MP4 est une opération distincte, dépendant des médias et des services disponibles. Son coût reste à vérifier.</p>
                 {videoUrl ? (
                   <div className="mt-6 rounded-lg border border-emerald-300/30 bg-emerald-300/10 p-4">
                     <p className="font-bold text-emerald-100">Vidéo MP4 créée</p>

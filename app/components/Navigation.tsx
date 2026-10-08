@@ -6,11 +6,11 @@ import { useState } from "react";
 const links = [
   { href: "https://rudyoai.com/", label: "Site public" },
   { href: "/pricing", label: "Tarifs" },
-  { href: "/beta-tests", label: "Beta tests" },
+  { href: "/beta-tests", label: "Tests bêta" },
   { href: "https://app.rudyoai.com/studio", label: "Studio" },
-  { href: "/dashboard", label: "Dashboard" },
+  { href: "/dashboard", label: "Tableau de bord" },
   { href: "/projects", label: "Projets" },
-  { href: "/order-video", label: "Commande video" },
+  { href: "/order-video", label: "Commander une vidéo" },
 ];
 
 export default function Navigation() {
@@ -49,14 +49,16 @@ export default function Navigation() {
             type="button"
             onClick={() => setMobileMenuOpen((open) => !open)}
             className="rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:bg-slate-900 md:hidden"
-            aria-label="Ouvrir le menu"
+            aria-label={mobileMenuOpen ? "Fermer le menu" : "Ouvrir le menu"}
+            aria-expanded={mobileMenuOpen}
+            aria-controls="mobile-navigation"
           >
             Menu
           </button>
         </div>
 
         {mobileMenuOpen ? (
-          <div className="grid gap-2 border-t border-slate-800 py-4 md:hidden">
+          <div id="mobile-navigation" className="grid gap-2 border-t border-slate-800 py-4 md:hidden">
             {links.map((link) => (
               <Link
                 key={link.href}

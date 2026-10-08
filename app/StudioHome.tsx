@@ -56,16 +56,14 @@ const videoTypes: Array<{
 ];
 
 const initialProject = {
-  titre: "Bod lanme pa lwen",
-  description:
-    "Créer un clip musical court en Guadeloupe, au bord de mer, avec une ambiance zouk romantique. Le clip montre l'amour, la pluie, le soleil, la mer, l'espoir et le lanbeli.",
-  duree: "30 secondes",
-  format: "9:16 TikTok / Reels / Shorts",
-  style: "cinématique moderne caribéen, lumière naturelle, grain film",
-  langue: "français / créole guadeloupéen",
-  publicCible: "artistes, chorales, public antillais",
-  nombrePlans: "5",
+  titre: "", description: "", duree: "30 secondes",
+  format: "9:16 TikTok / Reels / Shorts", style: "cinématique, lumière naturelle",
+  langue: "français", publicCible: "", nombrePlans: "5",
 };
+const briefExamples = [
+  {label:"Clip musical",type:"clip_musical" as VideoType,titre:"Mon clip musical",description:"Préparer un clip musical en bord de mer, avec une ambiance chaleureuse et des plans alternant paysage et interprétation.",publicCible:"auditeurs et fans de musique"},
+  {label:"Vidéo promo",type:"video_promotionnelle" as VideoType,titre:"Présenter mon activité",description:"Présenter une activité en trois temps : le besoin du public, la solution proposée et une invitation à prendre contact.",publicCible:"personnes intéressées par mon activité"},
+];
 
 const productionSteps = [
   "Brief artiste",
@@ -122,7 +120,7 @@ export default function HomePage() {
         if (!response.ok) throw new Error(data.error || "Chargement impossible.");
         const saved = data.projects?.find((item: {id:string}) => item.id === id);
         if (!saved?.config || !Array.isArray(saved?.storyboard?.storyboard)) throw new Error("Ce projet ne peut pas être repris dans ce studio.");
-        if (!cancelled) {setProject({...initialProject,...saved.config});setStoryboard(saved.storyboard);}
+        if (!cancelled) {setProject({...initialProject,...saved.config});setStoryboard(saved.storyboard);if(videoTypes.some(type=>type.id===saved.config.videoType))setSelectedType(saved.config.videoType);}
       } catch (error) {if (!cancelled) setError(error instanceof Error ? error.message : "Reprise impossible.");}
     }
     void restore();
@@ -194,7 +192,7 @@ export default function HomePage() {
 
       setStoryboard(data.result);
       try {
-      const saveResponse=await fetch("/api/projects",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({titre:project.titre,storyboard:data.result,config:project})});
+      const saveResponse=await fetch("/api/projects",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({titre:project.titre,storyboard:data.result,config:{...project,videoType:selectedType}})});
       if(!saveResponse.ok)setError("Storyboard créé, mais sauvegarde dans l’historique impossible. Copiez le résultat avant de quitter.");
       } catch { setError("Storyboard créé, mais sauvegarde impossible. Copiez le résultat avant de quitter."); }
       setVideoUrl("");
@@ -322,8 +320,8 @@ export default function HomePage() {
               </h1>
               <p className="mt-6 max-w-2xl text-base leading-8 text-slate-300 sm:text-lg">
                 Rudyo analyse votre idée comme un directeur artistique: mood,
-                plans, texte écran, caméra, prompts IA et montage MP4. Une
-                alternative plus complète pour artistes Suno, Udio, Spotify,
+                plans, texte écran, caméra et prompts IA. Le montage MP4 constitue une étape distincte. Un
+                parcours de préparation pour artistes,
                 associations et formations.
               </p>
 
@@ -336,11 +334,11 @@ export default function HomePage() {
                   Créer un storyboard
                 </a>
                 <Link
-                  href="/studio"
+                  href="/projects"
                   className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/15 bg-white/[0.04] px-5 py-4 font-bold text-white transition hover:bg-white/[0.08]"
                 >
                   <Radio className="h-5 w-5" />
-                  Ouvrir le studio avancé
+                  Retrouver mes projets
                 </Link>
               </div>
             </div>
@@ -609,6 +607,7 @@ export default function HomePage() {
               </label>
             </div>
 
+            <div className="mb-5 flex flex-wrap items-center gap-3"><span className="text-sm text-slate-400">Partir d’un exemple :</span>{briefExamples.map(example=><button key={example.label} type="button" disabled={generating||creatingVideo} className="rounded-full border border-white/20 px-4 py-2 text-sm hover:border-emerald-300 disabled:opacity-50" onClick={()=>{setProject({...initialProject,titre:example.titre,description:example.description,publicCible:example.publicCible});setSelectedType(example.type);setStoryboard(null);setVideoUrl("");setError("");}}>{example.label}</button>)}</div>
             <p className="mb-4 text-sm text-slate-300">Étape 1 : storyboard et prompts, {CREDIT_COSTS.storyboard_complete} crédits. Étape 2 : montage MP4 séparé, coût et disponibilité à vérifier. Le storyboard seul ne produit pas une vidéo. Solde : {user ? `${user.credits.balance} crédits` : "connexion requise"}.</p>
             <p role="status" aria-live="polite">{generating ? "Préparation du storyboard… Vous pouvez patienter sur cette page." : creatingVideo ? "Montage vidéo en cours…" : "Prêt pour votre prochaine action."}</p>
             <div className="my-4 flex gap-4"><Link href="/projects">Historique des projets</Link><Link href="/credits/history">Historique des crédits</Link></div>
@@ -620,7 +619,7 @@ export default function HomePage() {
 
             <button
               type="submit"
-              disabled={generating || !user}
+              disabled={generating || creatingVideo || !user}
               className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-300 px-5 py-4 font-black text-slate-950 transition hover:bg-emerald-200 disabled:cursor-wait disabled:opacity-70 sm:w-auto"
             >
               {generating ? (
@@ -817,7 +816,7 @@ export default function HomePage() {
                   <button
                     type="button"
                     onClick={handleCreateVideo}
-                    disabled={creatingVideo}
+                    disabled={creatingVideo || generating}
                     className="inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-300/40 bg-emerald-300/10 px-4 py-3 font-bold text-emerald-100 disabled:cursor-wait disabled:opacity-70"
                   >
                     {creatingVideo ? (

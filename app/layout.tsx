@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -12,13 +13,19 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-export const metadata: Metadata = {
+const baseMetadata: Metadata = {
   title: "Farozik - Rudyo Vidéo Studio IA",
   description:
     "Transformez vos affiches, chansons, formations et événements en vidéos professionnelles prêtes à publier. Studio vidéo assisté par IA pour artistes, associations, formations et événements.",
   keywords:
     "vidéo IA, flyer animé, clip lyrics, capsule pédagogique, moodle, vidéo promo",
 };
+
+export async function generateMetadata():Promise<Metadata>{
+ const h=(await headers()).get("host")?.split(":")[0];
+ const origin=h==="app.rudyoai.com"?"https://app.rudyoai.com":"https://rudyoai.com";
+ return {...baseMetadata,metadataBase:new URL(origin),robots:h==="app.rudyoai.com" ? {index:false,follow:false} : undefined};
+}
 
 export default function RootLayout({
   children,

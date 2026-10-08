@@ -13,10 +13,12 @@ type Project = {
 export default function ProjectsList() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
+  const [retry,setRetry]=useState(0);
   const [error, setError] = useState("");
 
   useEffect(() => {
     async function loadProjects() {
+      setLoading(true);setError("");
       try {
         const response = await fetch("/api/projects", { cache: "no-store" });
         const data = await response.json();
@@ -38,7 +40,7 @@ export default function ProjectsList() {
     }
 
     loadProjects();
-  }, []);
+  }, [retry]);
 
   if (loading) {
     return (
@@ -51,7 +53,7 @@ export default function ProjectsList() {
   if (error) {
     return (
       <div className="rounded-3xl border border-rose-500/40 bg-rose-950/30 p-8 text-rose-200">
-        {error}
+        {error}<button onClick={()=>setRetry(n=>n+1)} className="ml-4 underline">Réessayer</button>
       </div>
     );
   }

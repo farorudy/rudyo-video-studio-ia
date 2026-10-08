@@ -17,6 +17,7 @@ import {
   Waves,
 } from "lucide-react";
 import Link from "next/link";
+import { CREDIT_COSTS } from "@/lib/credit-costs";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import SystemStatus from "@/app/components/SystemStatus";
 import type { RudyoUser, StoryboardResult, VideoType } from "@/lib/types";
@@ -80,8 +81,8 @@ const sampleShots = [
 ];
 
 export default function HomePage() {
-  const [email, setEmail] = useState("rudy.faro@gmail.com");
-  const [name, setName] = useState("FARO MIRVAL");
+  const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
   const [user, setUser] = useState<RudyoUser | null>(null);
   const [loginLoading, setLoginLoading] = useState(false);
   const [selectedType, setSelectedType] = useState<VideoType>("clip_musical");
@@ -110,6 +111,24 @@ export default function HomePage() {
           }`,
       )
       .join("\n\n") ?? "";
+
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("project");
+    if (!id) return;
+    let cancelled = false;
+    async function restore() {
+      try {
+        const response = await fetch("/api/projects", {cache:"no-store"});
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Chargement impossible.");
+        const saved = data.projects?.find((item: {id:string}) => item.id === id);
+        if (!saved?.config || !Array.isArray(saved?.storyboard?.storyboard)) throw new Error("Ce projet ne peut pas être repris dans ce studio.");
+        if (!cancelled) {setProject({...initialProject,...saved.config});setStoryboard(saved.storyboard);}
+      } catch (error) {if (!cancelled) setError(error instanceof Error ? error.message : "Reprise impossible.");}
+    }
+    void restore();
+    return () => {cancelled=true;};
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -175,6 +194,7 @@ export default function HomePage() {
 
   async function handleGenerate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if(generating || creatingVideo) return;
     setError("");
     setCopied("");
 
@@ -183,6 +203,8 @@ export default function HomePage() {
       return;
     }
 
+    if(user.credits.balance < CREDIT_COSTS.storyboard_complete){setError("Crédits insuffisants pour ce storyboard.");return;}
+    if(!window.confirm(`Créer le storyboard pour ${CREDIT_COSTS.storyboard_complete} crédits ?`)) return;
     setGenerating(true);
 
     try {
@@ -201,6 +223,10 @@ export default function HomePage() {
       }
 
       setStoryboard(data.result);
+      try {
+      const saveResponse=await fetch("/api/projects",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({titre:project.titre,storyboard:data.result,config:project})});
+      if(!saveResponse.ok)setError("Storyboard créé, mais sauvegarde dans l’historique impossible. Copiez le résultat avant de quitter.");
+      } catch { setError("Storyboard créé, mais sauvegarde impossible. Copiez le résultat avant de quitter."); }
       setVideoUrl("");
       setEmailStatus("");
 
@@ -232,6 +258,7 @@ export default function HomePage() {
   }
 
   async function handleCreateVideo() {
+    if(creatingVideo || generating)return;
     if (!storyboard) {
       setError("Générez un storyboard avant de créer la vidéo.");
       return;
@@ -256,26 +283,7 @@ export default function HomePage() {
       const finalVideoUrl = data.result.dataUrl || data.result.url;
       setVideoUrl(finalVideoUrl);
 
-      const emailResponse = await fetch("/api/send-result-email", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          to: "rudy.faro@gmail.com",
-          title: storyboard.titre,
-          videoUrl: finalVideoUrl,
-        }),
-      });
-      const emailData = await emailResponse.json();
-
-      if (!emailResponse.ok || !emailData.success) {
-        setEmailStatus(
-          emailData.error ??
-            "Vidéo créée, mais l'email n'a pas pu être envoyé.",
-        );
-        return;
-      }
-
-      setEmailStatus(`Lien vidéo envoyé à ${emailData.to}.`);
+      setEmailStatus("Vidéo disponible au téléchargement. Aucun e-mail envoyé automatiquement.");
     } catch (videoError) {
       setError(
         videoError instanceof Error
@@ -649,9 +657,12 @@ export default function HomePage() {
               </label>
             </div>
 
+            <p className="mb-4 text-sm text-slate-300">Étape 1 : storyboard et prompts, {CREDIT_COSTS.storyboard_complete} crédits. Étape 2 : montage MP4 séparé, coût et disponibilité à vérifier. Le storyboard seul ne produit pas une vidéo. Solde : {user ? `${user.credits.balance} crédits` : "connexion requise"}.</p>
+            <p role="status" aria-live="polite">{generating ? "Préparation du storyboard… Vous pouvez patienter sur cette page." : creatingVideo ? "Montage vidéo en cours…" : "Prêt pour votre prochaine action."}</p>
+            <div className="my-4 flex gap-4"><Link href="/projects">Historique des projets</Link><Link href="/credits/history">Historique des crédits</Link></div>
             {error ? (
               <p className="mt-5 rounded-lg border border-red-300/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">
-                {error}
+                {error} Vous pouvez corriger votre saisie et réessayer. Les champs restent conservés.
               </p>
             ) : null}
 

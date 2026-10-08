@@ -4,10 +4,10 @@ import Link from "next/link";
 import { useState } from "react";
 
 const links = [
-  { href: "/", label: "Accueil" },
+  { href: "https://rudyoai.com/", label: "Site public" },
   { href: "/pricing", label: "Tarifs" },
   { href: "/beta-tests", label: "Beta tests" },
-  { href: "/studio", label: "Studio" },
+  { href: "https://app.rudyoai.com/studio", label: "Studio" },
   { href: "/dashboard", label: "Dashboard" },
   { href: "/projects", label: "Projets" },
   { href: "/order-video", label: "Commande video" },

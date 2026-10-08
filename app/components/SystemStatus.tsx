@@ -31,6 +31,7 @@ export default function SystemStatus() {
       try {
         const response = await fetch("/api/health", { cache: "no-store" });
         const data = (await response.json()) as HealthResponse;
+        if (!Array.isArray(data.checks)) throw new Error("Invalid health response");
 
         if (active) {
           setHealth(data);
@@ -58,7 +59,7 @@ export default function SystemStatus() {
     ? "Action requise"
     : hasWarning
       ? "Mode dégradé"
-      : "Système prêt";
+      : !health ? "Vérification en cours…" : "Configuration détectée — génération non testée";
   const status = hasError ? "error" : hasWarning ? "warning" : "ok";
 
   return (

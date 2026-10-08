@@ -38,3 +38,12 @@ body {
   background: rgba(16, 185, 129, 0.3);
   color: #f8fafc;
 }
+
+:where(a, button, input, textarea, select):focus-visible {
+  outline: 2px solid #6ee7b7;
+  outline-offset: 4px;
+}
+section[id] { scroll-margin-top: 5rem; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}

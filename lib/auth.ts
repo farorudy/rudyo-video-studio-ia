@@ -13,6 +13,7 @@ type SessionPayload = {
   name?: string;
   local?: boolean;
   issuedAt: number;
+  identityVerified?: boolean;
 };
 
 const COOKIE_NAME = "rudyo_session";
@@ -189,6 +190,8 @@ export async function getCurrentUser(
   if (!payload || !payload.userId) {
     return null;
   }
+
+  if (isProduction() && (payload.local || !payload.identityVerified)) return null;
 
   if (Date.now() - payload.issuedAt > SESSION_MAX_AGE_MS) {
     return null;

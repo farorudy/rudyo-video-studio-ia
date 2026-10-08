@@ -154,6 +154,10 @@ export async function handleSessionPost(req: NextRequest) {
       );
     }
 
+    if (isProduction()) {
+      return jsonError("Connexion suspendue : la vérification de votre identité doit être configurée. Aucun compte ne peut être ouvert sur la seule saisie d’un e-mail.", 503);
+    }
+
     logStep("connexion base de donnees");
     await assertDatabaseConnection();
 

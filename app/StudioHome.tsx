@@ -17,6 +17,7 @@ import {
   Waves,
 } from "lucide-react";
 import Link from "next/link";
+import {signOut} from "next-auth/react";
 import { CREDIT_COSTS } from "@/lib/credit-costs";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import SystemStatus from "@/app/components/SystemStatus";
@@ -81,10 +82,8 @@ const sampleShots = [
 ];
 
 export default function HomePage() {
-  const [email, setEmail] = useState("");
-  const [name, setName] = useState("");
   const [user, setUser] = useState<RudyoUser | null>(null);
-  const [loginLoading, setLoginLoading] = useState(false);
+  const [loginLoading] = useState(false);
   const [selectedType, setSelectedType] = useState<VideoType>("clip_musical");
   const [project, setProject] = useState(initialProject);
   const [storyboard, setStoryboard] = useState<StoryboardResult | null>(null);
@@ -160,36 +159,7 @@ export default function HomePage() {
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setError("");
-    setLoginLoading(true);
-
-    try {
-      const response = await fetch("/api/session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, name }),
-      });
-      const data = await response.json();
-
-      if (!response.ok || !data.success) {
-        throw new Error(data.error ?? "Connexion impossible.");
-      }
-
-      setUser({
-        id: data.user.id,
-        email: data.user.email,
-        name: data.user.name,
-        credits: data.credits,
-      });
-    } catch (loginError) {
-      setError(
-        loginError instanceof Error
-          ? loginError.message
-          : "Connexion impossible.",
-      );
-    } finally {
-      setLoginLoading(false);
-    }
+    window.location.assign("/login");
   }
 
   async function handleGenerate(event: FormEvent<HTMLFormElement>) {
@@ -199,7 +169,7 @@ export default function HomePage() {
     setCopied("");
 
     if (!user) {
-      setError("Connectez-vous avec votre email avant de générer le storyboard.");
+      setError("Connectez-vous avec votre compte vérifié avant de générer le storyboard.");
       return;
     }
 
@@ -379,7 +349,7 @@ export default function HomePage() {
               {[
                 ["9:16", "Reels, TikTok, Shorts"],
                 ["5 plans", "Storyboard exploitable"],
-                ["MP4", "Génération et email"],
+                ["MP4", "Montage et téléchargement"],
               ].map(([metric, label]) => (
                 <div
                   key={metric}
@@ -465,26 +435,7 @@ export default function HomePage() {
             </div>
 
             <form onSubmit={handleLogin} className="mt-5 space-y-4">
-              <label className="block">
-                <span className="text-sm font-medium text-slate-300">Email</span>
-                <input
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  type="email"
-                  className="mt-2 w-full rounded-lg border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-emerald-300"
-                  placeholder="rudy.faro@gmail.com"
-                  required
-                />
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium text-slate-300">Nom</span>
-                <input
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  className="mt-2 w-full rounded-lg border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white outline-none focus:border-emerald-300"
-                  placeholder="FARO MIRVAL"
-                />
-              </label>
+              <p className="text-sm text-slate-300">Connexion par compte Google avec adresse vérifiée.</p>
               <button
                 type="submit"
                 disabled={loginLoading}
@@ -507,6 +458,7 @@ export default function HomePage() {
                 <p className="mt-1 break-all text-sm text-slate-300">
                   {user.email}
                 </p>
+                <button type="button" className="mt-3 underline" onClick={()=>void signOut({redirectTo:"/login"})}>Se déconnecter</button>
                 <p className="mt-3 text-3xl font-black text-white">
                   {user.credits.balance} crédits
                 </p>

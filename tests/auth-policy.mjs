@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import {acceptsVerifiedGoogleIdentity} from '../lib/auth-policy.ts';
+import {POST} from '../app/api/auth/logout/route.ts';
+import {NextRequest} from 'next/server';
+assert.equal(acceptsVerifiedGoogleIdentity('google',{email:'test@example.com',email_verified:true}),true);
+for(const [provider,profile] of [['google',{email:'test@example.com',email_verified:false}],['google',{email:'test@example.com',email_verified:'true'}],['other',{email:'test@example.com',email_verified:true}],['google',null],['google',{email:'invalid',email_verified:true}]])assert.equal(acceptsVerifiedGoogleIdentity(provider,profile),false);
+const request=new NextRequest('https://app.rudyoai.com/api/auth/logout',{method:'POST',headers:{origin:'https://app.rudyoai.com',cookie:'__Secure-authjs.session-token.0=abc; __Secure-authjs.session-token.1=def; unrelated=stay'}});
+const response=await POST(request);
+assert.equal(response.status,200);
+for(const name of ['rudyo_session','__Secure-authjs.session-token.0','__Secure-authjs.session-token.1'])assert.equal(response.cookies.get(name)?.maxAge,0);
+assert.equal(response.cookies.has('unrelated'),false);
+assert.equal((await POST(new NextRequest('https://app.rudyoai.com/api/auth/logout',{method:'POST',headers:{origin:'https://foreign.example'}}))).status,403);
+console.log('Identité vérifiée et déconnexion : contrôles réussis.');

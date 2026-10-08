@@ -4,6 +4,7 @@ import {
   createHash,
   randomBytes,
 } from "crypto";
+import { getToken } from "next-auth/jwt";
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 
@@ -181,6 +182,12 @@ function decodePayload(token: string): SessionPayload | null {
 export async function getCurrentUser(
   req: NextRequest,
 ): Promise<SessionUser | null> {
+  if (process.env.AUTH_SECRET) {
+    const token = await getToken({req,secret:process.env.AUTH_SECRET,secureCookie:isProduction()});
+    if(token?.identityVerified === true && typeof token.rudyoUserId === "string") {
+      return prisma.user.findUnique({where:{id:token.rudyoUserId}});
+    }
+  }
   const cookie = req.cookies.get(COOKIE_NAME)?.value;
   if (!cookie) {
     return null;
